@@ -1,34 +1,29 @@
 
 #include <stdlib.h>
 #include <functional>
-#include "gpio.h"
+#include <stm32_gpio.hpp>
 
 #include "utils.h"
 #include "odrive_main.h"
 
-Axis::Axis(const AxisHardwareConfig_t& hw_config,
-           Config_t& config,
+Axis::Axis(Motor& motor,
            Encoder& encoder,
            SensorlessEstimator& sensorless_estimator,
            Controller& controller,
-           Motor& motor,
-           TrapezoidalTrajectory& trap)
-    : hw_config_(hw_config),
-      config_(config),
+           TrapezoidalTrajectory& trap,
+           uint32_t default_step_gpio_num, uint32_t default_dir_gpio_num)
+    : motor_(motor),
       encoder_(encoder),
       sensorless_estimator_(sensorless_estimator),
       controller_(controller),
-      motor_(motor),
-      trap_(trap)
+      trap_(trap),
+      default_step_gpio_num_(default_step_gpio_num), default_dir_gpio_num_(default_step_gpio_num)
 {
+    motor_.axis_ = this;
     encoder_.axis_ = this;
     sensorless_estimator_.axis_ = this;
     controller_.axis_ = this;
-    motor_.axis_ = this;
     trap_.axis_ = this;
-
-    decode_step_dir_pins();
-    update_watchdog_settings();
 }
 
 static void step_cb_wrapper(void* ctx) {
@@ -37,9 +32,24 @@ static void step_cb_wrapper(void* ctx) {
 
 // @brief Sets up all components of the axis,
 // such as gate driver and encoder hardware.
-void Axis::setup() {
-    encoder_.setup();
-    motor_.setup();
+bool Axis::setup(Config_t* config) {
+    if (!config)
+        return false;
+    config_ = config;
+    if (!motor_.setup(&config_->motor_config))
+        return false;
+    if (!encoder_.setup(&config_->encoder_config))
+        return false;
+    if (!sensorless_estimator_.setup(&config_->sensorless_estimator_config))
+        return false;
+    if (!controller_.setup(&config_->controller_config))
+        return false;
+    if (!trap_.setup(&config_->trap_config))
+        return false;
+
+    decode_step_dir_pins();
+    update_watchdog_settings();
+    return true;
 }
 
 static void run_state_machine_loop_wrapper(void* ctx) {
@@ -76,17 +86,19 @@ void Axis::step_cb() {
     }
 };
 
-void Axis::load_default_step_dir_pin_config(
-        const AxisHardwareConfig_t& hw_config, Config_t* config) {
-    config->step_gpio_pin = hw_config.step_gpio_pin;
-    config->dir_gpio_pin = hw_config.dir_gpio_pin;
+void Axis::load_default_step_dir_pin_config(Config_t* config) {
+    config->step_gpio_num = default_step_gpio_num_;
+    config->dir_gpio_num = default_dir_gpio_num_;
 }
 
 void Axis::decode_step_dir_pins() {
-    step_port_ = get_gpio_port_by_pin(config_.step_gpio_pin);
-    step_pin_ = get_gpio_pin_by_pin(config_.step_gpio_pin);
-    dir_port_ = get_gpio_port_by_pin(config_.dir_gpio_pin);
-    dir_pin_ = get_gpio_pin_by_pin(config_.dir_gpio_pin);
+    if (step_gpio_)
+        step_gpio_->deinit();
+    if (dir_gpio_)
+        dir_gpio_->deinit();
+    step_gpio_ = gpios[config_.step_gpio_num];
+    dir_gpio_ = gpios[config_.dir_gpio_num];
+    // TODO: reinit GPIOs here
 }
 
 // @brief: Setup the watchdog reset value from the configuration watchdog timeout interval. 
@@ -107,23 +119,22 @@ void Axis::update_watchdog_settings() {
 // @brief (de)activates step/dir input
 void Axis::set_step_dir_active(bool active) {
     if (active) {
-        // Set up the direction GPIO as input
-        GPIO_InitTypeDef GPIO_InitStruct;
-        GPIO_InitStruct.Pin = dir_pin_;
-        GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-        GPIO_InitStruct.Pull = GPIO_NOPULL;
-        HAL_GPIO_Init(dir_port_, &GPIO_InitStruct);
-
-        // Subscribe to rising edges of the step GPIO
-        GPIO_subscribe(step_port_, step_pin_, GPIO_PULLDOWN,
-                step_cb_wrapper, this);
+        if (dir_gpio_) {
+            dir_gpio_->setup(GPIO_t::INPUT, GPIO_t::NO_PULL);
+        }
+        if (step_gpio_) {
+            step_gpio_->setup(GPIO::INPUT, GPIO_t::PULL_DOWN);
+            step_gpio_->subscribe(step_cb_wrapper, this);
+        }
 
         step_dir_active_ = true;
     } else {
         step_dir_active_ = false;
 
-        // Unsubscribe from step GPIO
-        GPIO_unsubscribe(step_port_, step_pin_);
+        if (step_gpio_)
+            step_gpio_->deinit();
+        if (dir_gpio_)
+            dir_gpio_->deinit();
     }
 }
 

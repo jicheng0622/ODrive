@@ -5,7 +5,8 @@
 #error "This file should not be included directly. Include odrive_main.h instead."
 #endif
 
-#include "drv8301.h"
+#include <devices.hpp>
+#include <thermistor.hpp>
 
 class Motor {
 public:
@@ -95,19 +96,21 @@ public:
         ARMED_STATE_ARMED,
     };
 
-    Motor(const MotorHardwareConfig_t& hw_config,
-         const GateDriverHardwareConfig_t& gate_driver_config,
-         Config_t& config);
+    Motor(STM32_Timer_t* timer,
+         GateDriver_t* gate_driver_a,
+         GateDriver_t* gate_driver_b,
+         GateDriver_t* gate_driver_c,
+         CurrentSensor_t* current_sensor_a,
+         CurrentSensor_t* current_sensor_b,
+         CurrentSensor_t* current_sensor_c,
+         Thermistor_t inverter_thermistor);
 
     bool arm();
     void disarm();
-    void setup() {
-        DRV8301_setup();
-    }
+    bool setup(Config_t* config);
     void reset_current_control();
 
     void update_current_controller_gains();
-    void DRV8301_setup();
     bool check_DRV_fault();
     void set_error(Error_t error);
     bool do_checks();
@@ -125,14 +128,20 @@ public:
     bool FOC_current(float Id_des, float Iq_des, float I_phase, float pwm_phase);
     bool update(float current_setpoint, float phase, float phase_vel);
 
-    const MotorHardwareConfig_t& hw_config_;
-    const GateDriverHardwareConfig_t gate_driver_config_;
-    Config_t& config_;
+    STM32_Timer_t* timer_;
+    GateDriver_t* gate_driver_a;
+    GateDriver_t* gate_driver_b;
+    GateDriver_t* gate_driver_c;
+    CurrentSensor_t* current_sensor_a;
+    CurrentSensor_t* current_sensor_b;
+    CurrentSensor_t* current_sensor_c;
+    Thermistor_t inverter_thermistor_;
+
+    Config_t* config_ = nullptr; // assigned in setup()
     Axis* axis_ = nullptr; // set by Axis constructor
 
 //private:
 
-    DRV8301_Obj gate_driver_; // initialized in constructor
     uint16_t next_timings_[3] = {
         TIM_1_8_PERIOD_CLOCKS / 2,
         TIM_1_8_PERIOD_CLOCKS / 2,
@@ -148,10 +157,9 @@ public:
     // Do not write to this variable directly!
     // It is for exclusive use by the safety_critical_... functions.
     ArmedState_t armed_state_ = ARMED_STATE_DISARMED; 
-    bool is_calibrated_ = config_.pre_calibrated;
+    bool is_calibrated_ = config_->pre_calibrated;
     Iph_BC_t current_meas_ = {0.0f, 0.0f};
     Iph_BC_t DC_calib_ = {0.0f, 0.0f};
-    float phase_current_rev_gain_ = 0.0f; // Reverse gain for ADC to Amps (to be set by DRV8301_setup)
     CurrentControl_t current_control_ = {
         .p_gain = 0.0f,        // [V/A] should be auto set after resistance and inductance measurement
         .i_gain = 0.0f,        // [V/As] should be auto set after resistance and inductance measurement
@@ -167,8 +175,6 @@ public:
         .max_allowed_current = 0.0f,
         .overcurrent_trip_level = 0.0f,
     };
-    DRV8301_FaultType_e drv_fault_ = DRV8301_FaultType_NoFault;
-    DRV_SPI_8301_Vars_t gate_driver_regs_; //Local view of DRV registers (initialized by DRV8301_setup)
     float thermal_current_lim_ = 10.0f;  //[A]
 
     // Communication protocol definitions
@@ -181,7 +187,6 @@ public:
             make_protocol_ro_property("current_meas_phC", &current_meas_.phC),
             make_protocol_property("DC_calib_phB", &DC_calib_.phB),
             make_protocol_property("DC_calib_phC", &DC_calib_.phC),
-            make_protocol_property("phase_current_rev_gain", &phase_current_rev_gain_),
             make_protocol_ro_property("thermal_current_lim", &thermal_current_lim_),
             make_protocol_function("get_inverter_temp", *this, &Motor::get_inverter_temp),
             make_protocol_object("current_control",
@@ -199,13 +204,14 @@ public:
                 make_protocol_ro_property("max_allowed_current", &current_control_.max_allowed_current),
                 make_protocol_ro_property("overcurrent_trip_level", &current_control_.overcurrent_trip_level)
             ),
-            make_protocol_object("gate_driver",
-                make_protocol_ro_property("drv_fault", &drv_fault_)
-                // make_protocol_ro_property("status_reg_1", &gate_driver_regs_.Stat_Reg_1_Value),
-                // make_protocol_ro_property("status_reg_2", &gate_driver_regs_.Stat_Reg_2_Value),
-                // make_protocol_ro_property("ctrl_reg_1", &gate_driver_regs_.Ctrl_Reg_1_Value),
-                // make_protocol_ro_property("ctrl_reg_2", &gate_driver_regs_.Ctrl_Reg_2_Value)
-            ),
+
+            //make_protocol_object("gate_driver_a", gate_driver_a->make_protocol_definitions()),
+            //make_protocol_object("gate_driver_b", gate_driver_b->make_protocol_definitions()),
+            //make_protocol_object("gate_driver_c", gate_driver_c->make_protocol_definitions()),
+            //make_protocol_object("current_sensor_a", current_sensor_a.make_protocol_definitions()),
+            //make_protocol_object("current_sensor_b", current_sensor_b.make_protocol_definitions()),
+            //make_protocol_object("current_sensor_c", current_sensor_c.make_protocol_definitions()),
+
             make_protocol_object("timing_log",
                 make_protocol_ro_property("TIMING_LOG_GENERAL", &timing_log_[TIMING_LOG_GENERAL]),
                 make_protocol_ro_property("TIMING_LOG_ADC_CB_I", &timing_log_[TIMING_LOG_ADC_CB_I]),
@@ -218,19 +224,19 @@ public:
                 make_protocol_ro_property("TIMING_LOG_FOC_CURRENT", &timing_log_[TIMING_LOG_FOC_CURRENT])
             ),
             make_protocol_object("config",
-                make_protocol_property("pre_calibrated", &config_.pre_calibrated),
-                make_protocol_property("pole_pairs", &config_.pole_pairs),
-                make_protocol_property("calibration_current", &config_.calibration_current),
-                make_protocol_property("resistance_calib_max_voltage", &config_.resistance_calib_max_voltage),
-                make_protocol_property("phase_inductance", &config_.phase_inductance),
-                make_protocol_property("phase_resistance", &config_.phase_resistance),
-                make_protocol_property("direction", &config_.direction),
-                make_protocol_property("motor_type", &config_.motor_type),
-                make_protocol_property("current_lim", &config_.current_lim),
-                make_protocol_property("inverter_temp_limit_lower", &config_.inverter_temp_limit_lower),
-                make_protocol_property("inverter_temp_limit_upper", &config_.inverter_temp_limit_upper),
-                make_protocol_property("requested_current_range", &config_.requested_current_range),
-                make_protocol_property("current_control_bandwidth", &config_.current_control_bandwidth,
+                make_protocol_property("pre_calibrated", &config_->pre_calibrated),
+                make_protocol_property("pole_pairs", &config_->pole_pairs),
+                make_protocol_property("calibration_current", &config_->calibration_current),
+                make_protocol_property("resistance_calib_max_voltage", &config_->resistance_calib_max_voltage),
+                make_protocol_property("phase_inductance", &config_->phase_inductance),
+                make_protocol_property("phase_resistance", &config_->phase_resistance),
+                make_protocol_property("direction", &config_->direction),
+                make_protocol_property("motor_type", &config_->motor_type),
+                make_protocol_property("current_lim", &config_->current_lim),
+                make_protocol_property("inverter_temp_limit_lower", &config_->inverter_temp_limit_lower),
+                make_protocol_property("inverter_temp_limit_upper", &config_->inverter_temp_limit_upper),
+                make_protocol_property("requested_current_range", &config_->requested_current_range),
+                make_protocol_property("current_control_bandwidth", &config_->current_control_bandwidth,
                     [](void* ctx) { static_cast<Motor*>(ctx)->update_current_controller_gains(); }, this)
             )
         );

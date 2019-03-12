@@ -97,6 +97,8 @@ void HAL_PCD_MspInit(PCD_HandleTypeDef* pcdHandle)
   {
   /* USER CODE BEGIN USB_OTG_FS_MspInit 0 */
 
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+
   /* USER CODE END USB_OTG_FS_MspInit 0 */
   
     /**USB_OTG_FS GPIO Configuration    

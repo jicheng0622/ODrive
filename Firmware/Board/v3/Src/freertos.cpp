@@ -57,10 +57,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */     
 #include "freertos_vars.h"
-#include "usb_device.h"
-extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
-int odrive_main(void);
-int load_configuration(void);
+#include "freertos.hpp"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -80,13 +77,7 @@ int load_configuration(void);
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-// List of semaphores
-osSemaphoreId sem_usb_irq;
-osSemaphoreId sem_uart_dma;
-osSemaphoreId sem_usb_rx;
-osSemaphoreId sem_usb_tx;
 
-osThreadId usb_irq_thread;
 
 // Place FreeRTOS heap in core coupled memory for better performance
 __attribute__((section(".ccmram")))
@@ -98,11 +89,6 @@ osThreadId defaultTaskHandle;
 /* USER CODE BEGIN FunctionPrototypes */
 
 /* USER CODE END FunctionPrototypes */
-
-void StartDefaultTask(void * argument);
-
-extern void MX_USB_DEVICE_Init(void);
-void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /* Hook prototypes */
 void vApplicationIdleHook(void);
@@ -131,106 +117,57 @@ __weak void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTask
    called if a stack overflow is detected. */
 }
 
-void usb_deferred_interrupt_thread(void * ctx) {
-    (void) ctx; // unused parameter
-
-    for (;;) {
-        // Wait for signalling from USB interrupt (OTG_FS_IRQHandler)
-        osStatus semaphore_status = osSemaphoreWait(sem_usb_irq, osWaitForever);
-        if (semaphore_status == osOK) {
-            // We have a new incoming USB transmission: handle it
-            HAL_PCD_IRQHandler(&hpcd_USB_OTG_FS);
-            // Let the irq (OTG_FS_IRQHandler) fire again.
-            HAL_NVIC_EnableIRQ(OTG_FS_IRQn);
-        }
-    }
-}
-
-void init_deferred_interrupts(void) {
-    // Start USB interrupt handler thread
-    osThreadDef(task_usb_pump, usb_deferred_interrupt_thread, osPriorityAboveNormal, 0, 512);
-    usb_irq_thread = osThreadCreate(osThread(task_usb_pump), NULL);
-}
 
 /* USER CODE END 4 */
 
-/**
-  * @brief  FreeRTOS initialization
-  * @param  None
-  * @retval None
-  */
-void MX_FREERTOS_Init(void) {
-  /* USER CODE BEGIN Init */
-       
-  /* USER CODE END Init */
+void start_main_task(void* main_task) {
+    int exit_code = -1;
+    if (main_task) {
+        exit_code = ((main_task_t)main_task)();
+    }
 
-  /* USER CODE BEGIN RTOS_MUTEX */
-  /* add mutexes, ... */
-  /* USER CODE END RTOS_MUTEX */
+    (void)exit_code; // TODO: don't ignore exit code
 
-  /* USER CODE BEGIN RTOS_SEMAPHORES */
-  // Init usb irq binary semaphore, and start with no tokens by removing the starting one.
-  osSemaphoreDef(sem_usb_irq);
-  sem_usb_irq = osSemaphoreCreate(osSemaphore(sem_usb_irq), 1);
-  osSemaphoreWait(sem_usb_irq, 0);
-
-  // Create a semaphore for UART DMA and remove a token
-  osSemaphoreDef(sem_uart_dma);
-  sem_uart_dma = osSemaphoreCreate(osSemaphore(sem_uart_dma), 1);
-
-  // Create a semaphore for USB RX
-  osSemaphoreDef(sem_usb_rx);
-  sem_usb_rx = osSemaphoreCreate(osSemaphore(sem_usb_rx), 1);
-  osSemaphoreWait(sem_usb_rx, 0);  // Remove a token.
-
-  // Create a semaphore for USB TX
-  osSemaphoreDef(sem_usb_tx);
-  sem_usb_tx = osSemaphoreCreate(osSemaphore(sem_usb_tx), 1);
-
-  init_deferred_interrupts();
-
-  // Load persistent configuration (or defaults)
-  load_configuration();
-  /* USER CODE END RTOS_SEMAPHORES */
-
-  /* USER CODE BEGIN RTOS_TIMERS */
-  /* start timers, add new ones, ... */
-  /* USER CODE END RTOS_TIMERS */
-
-  /* Create the thread(s) */
-  /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 256);
-  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
-
-  /* USER CODE BEGIN RTOS_THREADS */
-
-  /* USER CODE END RTOS_THREADS */
-
-  /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
-  /* USER CODE END RTOS_QUEUES */
+    // If we get to here, then the default task is done.
+    vTaskDelete(defaultTaskHandle);
 }
 
-/* USER CODE BEGIN Header_StartDefaultTask */
-/**
-  * @brief  Function implementing the defaultTask thread.
-  * @param  argument: Not used 
-  * @retval None
-  */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void * argument)
-{
-  /* init code for USB_DEVICE */
-  MX_USB_DEVICE_Init();
+void tick_callback(void* ctx) {
+    (void)ctx;
+    HAL_IncTick();
+}
 
-  /* USER CODE BEGIN StartDefaultTask */
+/** @brief  FreeRTOS initialization */
+bool freertos_init(STM32_Timer_t* system_timer, main_task_t main_task) {
+    if (!system_timer) {
+        return false;
+    }
 
-  odrive_main();
+    // Compute timer clock (TODO: this assumes the timer is on PCLK1, make automatic)
+    uint32_t uwTimclock = 2 * HAL_RCC_GetPCLK1Freq();
+    // Compute the prescaler value to have counter clock equal to 1MHz
+    uint32_t uwPrescalerValue = (uint32_t) ((uwTimclock / 1000000) - 1);
 
-  //If we get to here, then the default task is done.
-  vTaskDelete(defaultTaskHandle);
+    /* Initialize TIMx peripheral as follow:
+    + Period = [(TIMxCLK/1000) - 1]. to have a (1/1000) s time base.
+    + Prescaler = (uwTimclock/1000000 - 1) to have a 1MHz counter clock.
+    + ClockDivision = 0
+    + Counter direction = Up
+    */
+    tim14.setup(
+        (1000000 / 1000) - 1,
+        STM32_Timer_t::UP,
+        uwPrescalerValue
+    );
+    tim14.enable_update_interrupt(tick_callback, nullptr);
+    tim14.start();
 
-  /* USER CODE END StartDefaultTask */
+    /* Create the thread(s) */
+    /* definition and creation of defaultTask */
+    osThreadDef(defaultTask, start_main_task, osPriorityNormal, 0, 256);
+    defaultTaskHandle = osThreadCreate(osThread(defaultTask), (void*)main_task); // TODO: technically it's not legal to cast a function pointer to a data pointer
+
+    return true;
 }
 
 /* Private application code --------------------------------------------------*/

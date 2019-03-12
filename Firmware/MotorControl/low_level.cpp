@@ -13,7 +13,7 @@
 #include <stdlib.h>
 
 #include <adc.h>
-#include <gpio.h>
+#include <gpio.hpp>
 #include <main.h>
 #include <spi.h>
 #include <tim.h>
@@ -28,8 +28,7 @@
 /* Private macros ------------------------------------------------------------*/
 /* Private typedef -----------------------------------------------------------*/
 /* Global constant data ------------------------------------------------------*/
-const float adc_full_scale = (float)(1 << 12);
-const float adc_ref_voltage = 3.3f;
+
 /* Global variables ----------------------------------------------------------*/
 
 // This value is updated by the DC-bus reading ADC.
@@ -112,7 +111,7 @@ bool safety_critical_disarm_motor_pwm(Motor& motor) {
     uint32_t mask = cpu_enter_critical();
     bool was_armed = motor.armed_state_ != Motor::ARMED_STATE_DISARMED;
     motor.armed_state_ = Motor::ARMED_STATE_DISARMED;
-    __HAL_TIM_MOE_DISABLE_UNCONDITIONALLY(motor.hw_config_.timer);
+    __HAL_TIM_MOE_DISABLE_UNCONDITIONALLY(motor.timer_);
     cpu_exit_critical(mask);
     return was_armed;
 }
@@ -128,9 +127,9 @@ void safety_critical_apply_motor_pwm_timings(Motor& motor, uint16_t timings[3]) 
         motor.armed_state_ = Motor::ARMED_STATE_DISARMED;
     }
 
-    motor.hw_config_.timer->Instance->CCR1 = timings[0];
-    motor.hw_config_.timer->Instance->CCR2 = timings[1];
-    motor.hw_config_.timer->Instance->CCR3 = timings[2];
+    motor.timer_->Instance->CCR1 = timings[0];
+    motor.timer_->Instance->CCR2 = timings[1];
+    motor.timer_->Instance->CCR3 = timings[2];
 
     if (motor.armed_state_ == Motor::ARMED_STATE_WAITING_FOR_TIMINGS) {
         // timings were just loaded into the timer registers
@@ -142,7 +141,7 @@ void safety_critical_apply_motor_pwm_timings(Motor& motor, uint16_t timings[3]) 
         // now we waited long enough. Enter armed state and
         // enable the actual PWM outputs.
         motor.armed_state_ = Motor::ARMED_STATE_ARMED;
-        __HAL_TIM_MOE_ENABLE(motor.hw_config_.timer);  // enable pwm outputs
+        __HAL_TIM_MOE_ENABLE(motor.timer_);  // enable pwm outputs
     } else if (motor.armed_state_ == Motor::ARMED_STATE_ARMED) {
         // nothing to do, PWM is running, all good
     } else {
@@ -197,18 +196,6 @@ void safety_critical_apply_brake_resistor_timings(uint32_t low_off, uint32_t hig
 /* Function implementations --------------------------------------------------*/
 
 void start_adc_pwm() {
-    // Enable ADC and interrupts
-    __HAL_ADC_ENABLE(&hadc1);
-    __HAL_ADC_ENABLE(&hadc2);
-    __HAL_ADC_ENABLE(&hadc3);
-    // Warp field stabilize.
-    osDelay(2);
-    __HAL_ADC_ENABLE_IT(&hadc1, ADC_IT_JEOC);
-    __HAL_ADC_ENABLE_IT(&hadc2, ADC_IT_JEOC);
-    __HAL_ADC_ENABLE_IT(&hadc3, ADC_IT_JEOC);
-    __HAL_ADC_ENABLE_IT(&hadc2, ADC_IT_EOC);
-    __HAL_ADC_ENABLE_IT(&hadc3, ADC_IT_EOC);
-
     // Ensure that debug halting of the core doesn't leave the motor PWM running
     __HAL_DBGMCU_FREEZE_TIM1();
     __HAL_DBGMCU_FREEZE_TIM8();
@@ -374,43 +361,7 @@ void start_general_purpose_adc() {
 // The true frequency is slightly lower because of the injected vbus
 // measurements
 float get_adc_voltage(GPIO_TypeDef* GPIO_port, uint16_t GPIO_pin) {
-    uint32_t channel = UINT32_MAX;
-    if (GPIO_port == GPIOA) {
-        if (GPIO_pin == GPIO_PIN_0)
-            channel = 0;
-        else if (GPIO_pin == GPIO_PIN_1)
-            channel = 1;
-        else if (GPIO_pin == GPIO_PIN_2)
-            channel = 2;
-        else if (GPIO_pin == GPIO_PIN_3)
-            channel = 3;
-        else if (GPIO_pin == GPIO_PIN_4)
-            channel = 4;
-        else if (GPIO_pin == GPIO_PIN_5)
-            channel = 5;
-        else if (GPIO_pin == GPIO_PIN_6)
-            channel = 6;
-        else if (GPIO_pin == GPIO_PIN_7)
-            channel = 7;
-    } else if (GPIO_port == GPIOB) {
-        if (GPIO_pin == GPIO_PIN_0)
-            channel = 8;
-        else if (GPIO_pin == GPIO_PIN_1)
-            channel = 9;
-    } else if (GPIO_port == GPIOC) {
-        if (GPIO_pin == GPIO_PIN_0)
-            channel = 10;
-        else if (GPIO_pin == GPIO_PIN_1)
-            channel = 11;
-        else if (GPIO_pin == GPIO_PIN_2)
-            channel = 12;
-        else if (GPIO_pin == GPIO_PIN_3)
-            channel = 13;
-        else if (GPIO_pin == GPIO_PIN_4)
-            channel = 14;
-        else if (GPIO_pin == GPIO_PIN_5)
-            channel = 15;
-    }
+    get channel num!
     if (channel < ADC_CHANNEL_COUNT)
         return ((float)adc_measurements_[channel]) * (adc_ref_voltage / adc_full_scale);
     else
@@ -421,11 +372,10 @@ float get_adc_voltage(GPIO_TypeDef* GPIO_port, uint16_t GPIO_pin) {
 // IRQ Callbacks
 //--------------------------------
 
-void vbus_sense_adc_cb(ADC_HandleTypeDef* hadc, bool injected) {
-    static const float voltage_scale = adc_ref_voltage * VBUS_S_DIVIDER_RATIO / adc_full_scale;
-    // Only one conversion in sequence, so only rank1
-    uint32_t ADCValue = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_1);
-    vbus_voltage = ADCValue * voltage_scale;
+void vbus_sense_adc_cb(void* ctx) {
+    (void) ctx;
+    
+    vbus_voltage = vbus_sense.get_voltage();
     if (axes[0] && !axes[0]->error_ && axes[1] && !axes[1]->error_) {
         if (oscilloscope_pos >= OSCILLOSCOPE_SIZE)
             oscilloscope_pos = 0;
@@ -434,15 +384,10 @@ void vbus_sense_adc_cb(ADC_HandleTypeDef* hadc, bool injected) {
 }
 
 static void decode_hall_samples(Encoder& enc, uint16_t GPIO_samples[num_GPIO]) {
-    GPIO_TypeDef* hall_ports[] = {
-        enc.hw_config_.hallC_port,
-        enc.hw_config_.hallB_port,
-        enc.hw_config_.hallA_port,
-    };
-    uint16_t hall_pins[] = {
-        enc.hw_config_.hallC_pin,
-        enc.hw_config_.hallB_pin,
-        enc.hw_config_.hallA_pin,
+    GPIO_t* hall_gpios[] = {
+        enc.hallC_gpio_,
+        enc.hallB_gpio_,
+        enc.hallA_gpio_,
     };
 
     uint8_t hall_state = 0x0;
@@ -450,13 +395,13 @@ static void decode_hall_samples(Encoder& enc, uint16_t GPIO_samples[num_GPIO]) {
         int port_idx = 0;
         for (;;) {
             auto port = GPIOs_to_samp[port_idx];
-            if (port == hall_ports[i])
+            if (port == hall_gpios[i]->port)
                 break;
             ++port_idx;
         }
 
         hall_state <<= 1;
-        hall_state |= (GPIO_samples[port_idx] & hall_pins[i]) ? 1 : 0;
+        hall_state |= (GPIO_samples[port_idx] & hall_gpios[i]->pin) ? 1 : 0;
     }
 
     enc.hall_state_ = hall_state;
@@ -671,9 +616,11 @@ void pwm_in_init() {
     int gpio_num = 4; {
 #endif
         if (is_endpoint_ref_valid(board_config.pwm_mappings[gpio_num - 1].endpoint)) {
-            GPIO_InitStruct.Pin = get_gpio_pin_by_pin(gpio_num);
-            HAL_GPIO_DeInit(get_gpio_port_by_pin(gpio_num), get_gpio_pin_by_pin(gpio_num));
-            HAL_GPIO_Init(get_gpio_port_by_pin(gpio_num), &GPIO_InitStruct);
+            // TODO: the owner should give up the GPIO first
+            GPIO_InitStruct.Pin = 1U << gpios[gpio_num]->pin_number;
+            HAL_GPIO_Deinit(gpios[gpio_num]->port);
+            HAL_GPIO_Init(gpios[gpio_num]->port, &GPIO_InitStruct);
+
             HAL_TIM_IC_ConfigChannel(&htim5, &sConfigIC, gpio_num_to_tim_2_5_channel(gpio_num));
             HAL_TIM_IC_Start_IT(&htim5, gpio_num_to_tim_2_5_channel(gpio_num));
         }
@@ -707,7 +654,7 @@ void handle_pulse(int gpio_num, uint32_t high_time) {
     endpoint->set_from_float(value);
 }
 
-void pwm_in_cb(int channel, uint32_t timestamp) {
+void pwm_in_cb(void* ctx, int channel, uint32_t timestamp) {
     static uint32_t last_timestamp[GPIO_COUNT] = { 0 };
     static bool last_pin_state[GPIO_COUNT] = { false };
     static bool last_sample_valid[GPIO_COUNT] = { false };
@@ -715,7 +662,7 @@ void pwm_in_cb(int channel, uint32_t timestamp) {
     int gpio_num = tim_2_5_channel_num_to_gpio_num(channel);
     if (gpio_num < 1 || gpio_num > GPIO_COUNT)
         return;
-    bool current_pin_state = HAL_GPIO_ReadPin(get_gpio_port_by_pin(gpio_num), get_gpio_pin_by_pin(gpio_num)) != GPIO_PIN_RESET;
+    bool current_pin_state = gpios[gpio_num]->read();
 
     if (last_sample_valid[gpio_num - 1]
         && (last_pin_state[gpio_num - 1] != PWM_INVERT_INPUT)
@@ -733,7 +680,7 @@ void pwm_in_cb(int channel, uint32_t timestamp) {
 
 static void update_analog_endpoint(const struct PWMMapping_t *map, int gpio)
 {
-    float fraction = get_adc_voltage(get_gpio_port_by_pin(gpio), get_gpio_pin_by_pin(gpio)) / 3.3f;
+    float fraction = get_adc_voltage(gpios[gpio]) / 3.3f;
     float value = map->min + (fraction * (map->max - map->min));
     get_endpoint(map->endpoint)->set_from_float(value);
 }

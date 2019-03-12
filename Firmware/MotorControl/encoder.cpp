@@ -2,24 +2,45 @@
 #include "odrive_main.h"
 
 
-Encoder::Encoder(const EncoderHardwareConfig_t& hw_config,
-                Config_t& config) :
-        hw_config_(hw_config),
-        config_(config)
+Encoder::Encoder(STM32_Timer_t* counter, GPIO_t* index_gpio,
+                 GPIO_t* hallA_gpio, GPIO_t* hallB_gpio, GPIO_t* hallC_gpio) :
+        counter_(counter),
+        index_gpio_(index_gpio),
+        hallA_gpio_(hallA_gpio),
+        hallB_gpio_(hallB_gpio),
+        hallC_gpio_(hallC_gpio)
 {
-    update_pll_gains();
-
-    if (config.pre_calibrated && (config.mode == Encoder::MODE_HALL || config.mode == Encoder::MODE_SINCOS)) {
-        is_ready_ = true;
-    }
 }
 
 static void enc_index_cb_wrapper(void* ctx) {
     reinterpret_cast<Encoder*>(ctx)->enc_index_cb();
 }
 
-void Encoder::setup() {
-    HAL_TIM_Encoder_Start(hw_config_.timer, TIM_CHANNEL_ALL);
+bool Encoder::setup(Config_t* config) {
+    if (!config) {
+        return false;
+    }
+
+    config_ = config;
+    
+    update_pll_gains();
+
+    if (config_->pre_calibrated && (config_->mode == Encoder::MODE_HALL || config->mode == Encoder::MODE_SINCOS)) {
+        is_ready_ = true;
+    }
+
+    if (!counter_) {
+        return false;
+    }
+    if (!counter_->setup(0xffff /* period */, STM32_Timer_t::UP /* mode */)) {
+        return false;
+    }
+    if (!counter_->config_encoder_mode(hallA_gpio_ /* Mx_ENC_A */, hallB_gpio_ /* Mx_ENC_B */)) {
+        return false;
+    }
+    if (!counter_->start_encoder()) {
+        return false;
+    }
     set_idx_subscribe();
 }
 
@@ -40,11 +61,11 @@ bool Encoder::do_checks(){
 // TODO: only arm index edge interrupt when we know encoder has powered up
 // (maybe by attaching the interrupt on start search, synergistic with following)
 void Encoder::enc_index_cb() {
-    if (config_.use_index) {
+    if (config_->use_index) {
         set_circular_count(0, false);
-        if (config_.zero_count_on_find_idx)
+        if (config_->zero_count_on_find_idx)
             set_linear_count(0); // Avoid position control transient after search
-        if (config_.pre_calibrated) {
+        if (config_->pre_calibrated) {
             is_ready_ = true;
         } else {
             // We can't use the update_offset facility in set_circular_count because
@@ -56,22 +77,22 @@ void Encoder::enc_index_cb() {
     }
 
     // Disable interrupt
-    GPIO_unsubscribe(hw_config_.index_port, hw_config_.index_pin);
+    index_gpio_->unsubscribe();
 }
 
 void Encoder::set_idx_subscribe(bool override_enable) {
-    if (override_enable || (config_.use_index && !config_.find_idx_on_lockin_only)) {
-        GPIO_subscribe(hw_config_.index_port, hw_config_.index_pin, GPIO_PULLDOWN,
-                enc_index_cb_wrapper, this);
+    if (override_enable || (config_->use_index && !config_->find_idx_on_lockin_only)) {
+        index_gpio_->setup(false, GPIO_t::INPUT, GPIO_t::PULL_DOWN);
+        index_gpio_->subscribe(enc_index_cb_wrapper, this);
     }
 
-    if (!config_.use_index || config_.find_idx_on_lockin_only) {
-        GPIO_unsubscribe(hw_config_.index_port, hw_config_.index_pin);
+    if (!config_->use_index || config_->find_idx_on_lockin_only) {
+        index_gpio_->unsubscribe();
     }
 }
 
 void Encoder::update_pll_gains() {
-    pll_kp_ = 2.0f * config_.bandwidth;  // basic conversion to discrete time
+    pll_kp_ = 2.0f * config_->bandwidth;  // basic conversion to discrete time
     pll_ki_ = 0.25f * (pll_kp_ * pll_kp_); // Critically damped
 
     // Check that we don't get problems with discrete time approximation
@@ -96,7 +117,7 @@ void Encoder::set_linear_count(int32_t count) {
     shadow_count_ = count;
     pos_estimate_ = (float)count;
     //Write hardware last
-    hw_config_.timer->Instance->CNT = count;
+    hw_config_->timer->Instance->CNT = count;
 
     cpu_exit_critical(prim);
 }
@@ -108,49 +129,49 @@ void Encoder::set_circular_count(int32_t count, bool update_offset) {
     uint32_t prim = cpu_enter_critical();
 
     if (update_offset) {
-        config_.offset += count - count_in_cpr_;
-        config_.offset = mod(config_.offset, config_.cpr);
+        config_->offset += count - count_in_cpr_;
+        config_->offset = mod(config_->offset, config_->cpr);
     }
 
     // Update states
-    count_in_cpr_ = mod(count, config_.cpr);
+    count_in_cpr_ = mod(count, config_->cpr);
     pos_cpr_ = (float)count_in_cpr_;
 
     cpu_exit_critical(prim);
 }
 
 bool Encoder::run_index_search() {
-    config_.use_index = true;
+    config_->use_index = true;
     index_found_ = false;
-    if (!config_.idx_search_unidirectional && axis_->motor_.config_.direction == 0) {
-        axis_->motor_.config_.direction = 1;
+    if (!config_->idx_search_unidirectional && axis_->motor_.config_->direction == 0) {
+        axis_->motor_.config_->direction = 1;
     }
 
-    bool orig_finish_on_enc_idx = axis_->config_.lockin.finish_on_enc_idx;
-    axis_->config_.lockin.finish_on_enc_idx = true;
+    bool orig_finish_on_enc_idx = axis_->config_->lockin.finish_on_enc_idx;
+    axis_->config_->lockin.finish_on_enc_idx = true;
     bool status = axis_->run_lockin_spin();
-    axis_->config_.lockin.finish_on_enc_idx = orig_finish_on_enc_idx;
+    axis_->config_->lockin.finish_on_enc_idx = orig_finish_on_enc_idx;
     return status;
 }
 
 bool Encoder::run_direction_find() {
     int32_t init_enc_val = shadow_count_;
-    bool orig_finish_on_distance = axis_->config_.lockin.finish_on_distance;
-    axis_->config_.lockin.finish_on_distance = true;
-    axis_->motor_.config_.direction = 1; // Must test spin forwards for direction detect logic
+    bool orig_finish_on_distance = axis_->config_->lockin.finish_on_distance;
+    axis_->config_->lockin.finish_on_distance = true;
+    axis_->motor_.config_->direction = 1; // Must test spin forwards for direction detect logic
     bool status = axis_->run_lockin_spin();
-    axis_->config_.lockin.finish_on_distance = orig_finish_on_distance;
+    axis_->config_->lockin.finish_on_distance = orig_finish_on_distance;
 
     if (status) {
         // Check response and direction
         if (shadow_count_ > init_enc_val + 8) {
             // motor same dir as encoder
-            axis_->motor_.config_.direction = 1;
+            axis_->motor_.config_->direction = 1;
         } else if (shadow_count_ < init_enc_val - 8) {
             // motor opposite dir as encoder
-            axis_->motor_.config_.direction = -1;
+            axis_->motor_.config_->direction = -1;
         } else {
-            axis_->motor_.config_.direction = 0;
+            axis_->motor_.config_->direction = 0;
         }
     }
 
@@ -168,7 +189,7 @@ bool Encoder::run_offset_calibration() {
     static const int num_steps = (int)(scan_distance / scan_omega * (float)current_meas_hz);
 
     // Require index found if enabled
-    if (config_.use_index && !index_found_) {
+    if (config_->use_index && !index_found_) {
         set_error(ERROR_INDEX_NOT_FOUND_YET);
         return false;
     }
@@ -178,10 +199,10 @@ bool Encoder::run_offset_calibration() {
     shadow_count_ = count_in_cpr_;
 
     float voltage_magnitude;
-    if (axis_->motor_.config_.motor_type == Motor::MOTOR_TYPE_HIGH_CURRENT)
-        voltage_magnitude = axis_->motor_.config_.calibration_current * axis_->motor_.config_.phase_resistance;
-    else if (axis_->motor_.config_.motor_type == Motor::MOTOR_TYPE_GIMBAL)
-        voltage_magnitude = axis_->motor_.config_.calibration_current;
+    if (axis_->motor_.config_->motor_type == Motor::MOTOR_TYPE_HIGH_CURRENT)
+        voltage_magnitude = axis_->motor_.config_->calibration_current * axis_->motor_.config_->phase_resistance;
+    else if (axis_->motor_.config_->motor_type == Motor::MOTOR_TYPE_GIMBAL)
+        voltage_magnitude = axis_->motor_.config_->calibration_current;
     else
         return false;
 
@@ -219,10 +240,10 @@ bool Encoder::run_offset_calibration() {
     // Check response and direction
     if (shadow_count_ > init_enc_val + 8) {
         // motor same dir as encoder
-        axis_->motor_.config_.direction = 1;
+        axis_->motor_.config_->direction = 1;
     } else if (shadow_count_ < init_enc_val - 8) {
         // motor opposite dir as encoder
-        axis_->motor_.config_.direction = -1;
+        axis_->motor_.config_->direction = -1;
     } else {
         // Encoder response error
         set_error(ERROR_NO_RESPONSE);
@@ -231,10 +252,10 @@ bool Encoder::run_offset_calibration() {
 
     //TODO avoid recomputing elec_rad_per_enc every time
     // Check CPR
-    float elec_rad_per_enc = axis_->motor_.config_.pole_pairs * 2 * M_PI * (1.0f / (float)(config_.cpr));
+    float elec_rad_per_enc = axis_->motor_.config_->pole_pairs * 2 * M_PI * (1.0f / (float)(config_->cpr));
     float expected_encoder_delta = scan_distance / elec_rad_per_enc;
     float actual_encoder_delta_abs = fabsf(shadow_count_-init_enc_val);
-    if(fabsf(actual_encoder_delta_abs - expected_encoder_delta)/expected_encoder_delta > config_.calib_range)
+    if(fabsf(actual_encoder_delta_abs - expected_encoder_delta)/expected_encoder_delta > config_->calib_range)
     {
         set_error(ERROR_CPR_OUT_OF_RANGE);
         return false;
@@ -257,9 +278,9 @@ bool Encoder::run_offset_calibration() {
     if (axis_->error_ != Axis::ERROR_NONE)
         return false;
 
-    config_.offset = encvaluesum / (num_steps * 2);
-    int32_t residual = encvaluesum - ((int64_t)config_.offset * (int64_t)(num_steps * 2));
-    config_.offset_float = (float)residual / (float)(num_steps * 2) + 0.5f; // add 0.5 to center-align state to phase
+    config_->offset = encvaluesum / (num_steps * 2);
+    int32_t residual = encvaluesum - ((int64_t)config_->offset * (int64_t)(num_steps * 2));
+    config_->offset_float = (float)residual / (float)(num_steps * 2) + 0.5f; // add 0.5 to center-align state to phase
 
     is_ready_ = true;
     return true;
@@ -278,9 +299,9 @@ static bool decode_hall(uint8_t hall_state, int32_t* hall_cnt) {
 }
 
 void Encoder::sample_now() {
-    switch (config_.mode) {
+    switch (config_->mode) {
         case MODE_INCREMENTAL: {
-            tim_cnt_sample_ = (int16_t)hw_config_.timer->Instance->CNT;
+            tim_cnt_sample_ = (int16_t)counter_->Instance->CNT;
         } break;
 
         case MODE_HALL: {
@@ -301,7 +322,7 @@ void Encoder::sample_now() {
 bool Encoder::update() {
     // update internal encoder state.
     int32_t delta_enc = 0;
-    switch (config_.mode) {
+    switch (config_->mode) {
         case MODE_INCREMENTAL: {
             //TODO: use count_in_cpr_ instead as shadow_count_ can overflow
             //or use 64 bit
@@ -317,7 +338,7 @@ bool Encoder::update() {
                 if (delta_enc > 3)
                     delta_enc -= 6;
             } else {
-                if (!config_.ignore_illegal_hall_state) {
+                if (!config_->ignore_illegal_hall_state) {
                     set_error(ERROR_ILLEGAL_HALL_STATE);
                     return false;
                 }
@@ -343,7 +364,7 @@ bool Encoder::update() {
 
     shadow_count_ += delta_enc;
     count_in_cpr_ += delta_enc;
-    count_in_cpr_ = mod(count_in_cpr_, config_.cpr);
+    count_in_cpr_ = mod(count_in_cpr_, config_->cpr);
 
     //// run pll (for now pll is in units of encoder counts)
     // Predict current pos
@@ -352,11 +373,11 @@ bool Encoder::update() {
     // discrete phase detector
     float delta_pos     = (float)(shadow_count_ - (int32_t)floorf(pos_estimate_));
     float delta_pos_cpr = (float)(count_in_cpr_ - (int32_t)floorf(pos_cpr_));
-    delta_pos_cpr = wrap_pm(delta_pos_cpr, 0.5f * (float)(config_.cpr));
+    delta_pos_cpr = wrap_pm(delta_pos_cpr, 0.5f * (float)(config_->cpr));
     // pll feedback
     pos_estimate_ += current_meas_period * pll_kp_ * delta_pos;
     pos_cpr_      += current_meas_period * pll_kp_ * delta_pos_cpr;
-    pos_cpr_ = fmodf_pos(pos_cpr_, (float)(config_.cpr));
+    pos_cpr_ = fmodf_pos(pos_cpr_, (float)(config_->cpr));
     vel_estimate_      += current_meas_period * pll_ki_ * delta_pos_cpr;
     bool snap_to_zero_vel = false;
     if (fabsf(vel_estimate_) < 0.5f * current_meas_period * pll_ki_) {
@@ -365,9 +386,9 @@ bool Encoder::update() {
     }
 
     //// run encoder count interpolation
-    int32_t corrected_enc = count_in_cpr_ - config_.offset;
+    int32_t corrected_enc = count_in_cpr_ - config_->offset;
     // if we are stopped, make sure we don't randomly drift
-    if (snap_to_zero_vel || !config_.enable_phase_interpolation) {
+    if (snap_to_zero_vel || !config_->enable_phase_interpolation) {
         interpolation_ = 0.5f;
     // reset interpolation if encoder edge comes
     } else if (delta_enc > 0) {
@@ -385,8 +406,8 @@ bool Encoder::update() {
 
     //// compute electrical phase
     //TODO avoid recomputing elec_rad_per_enc every time
-    float elec_rad_per_enc = axis_->motor_.config_.pole_pairs * 2 * M_PI * (1.0f / (float)(config_.cpr));
-    float ph = elec_rad_per_enc * (interpolated_enc - config_.offset_float);
+    float elec_rad_per_enc = axis_->motor_.config_->pole_pairs * 2 * M_PI * (1.0f / (float)(config_->cpr));
+    float ph = elec_rad_per_enc * (interpolated_enc - config_->offset_float);
     // ph = fmodf(ph, 2*M_PI);
     phase_ = wrap_pm_pi(ph);
 

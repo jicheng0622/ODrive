@@ -156,32 +156,53 @@ build{
     --toolchains={LLVMToolchain('x86_64', {'-Ofast'}, {'-flto'})},
     packages={'stm_platform'},
     sources={
+        -- STM32 HAL
+        'Board/v3/Src/stm32_adc.cpp',
+        'Board/v3/Src/stm32_can.cpp',
+        'Board/v3/Src/stm32_dma.cpp',
+        'Board/v3/Src/stm32_gpio.cpp',
+        'Board/v3/Src/stm32_i2c.cpp',
+        'Board/v3/Src/stm32_spi.cpp',
+        'Board/v3/Src/stm32_tim.cpp',
+        'Board/v3/Src/stm32_usart.cpp',
+        'Board/v3/Src/stm32_usb.cpp',
+
+        'Board/v3/Src/freertos.cpp',
+        'FreeRTOS-openocd.c',
+
+        'Drivers/DRV8301/drv8301.cpp',
         'Drivers/DRV8301/drv8301.c',
+
+        'USB/usb.cpp',
+        'USB/usb_cdc.cpp',
+        'USB/winusb_compat.cpp',
+
+        'MotorControl/main.cpp',
         'MotorControl/utils.c',
         'MotorControl/arm_sin_f32.c',
         'MotorControl/arm_cos_f32.c',
-        'MotorControl/low_level.cpp',
+--        'MotorControl/low_level.cpp',
         'MotorControl/nvm.c',
-        'MotorControl/axis.cpp',
+--        'MotorControl/axis.cpp',
         'MotorControl/motor.cpp',
-        'MotorControl/encoder.cpp',
+--        'MotorControl/encoder.cpp',
         'MotorControl/controller.cpp',
         'MotorControl/sensorless_estimator.cpp',
         'MotorControl/trapTraj.cpp',
-        'MotorControl/main.cpp',
         'communication/communication.cpp',
-        'communication/ascii_protocol.cpp',
+--        'communication/ascii_protocol.cpp',
         'communication/interface_uart.cpp',
         'communication/interface_usb.cpp',
-        'communication/interface_can.cpp',
-        'communication/interface_i2c.cpp',
+--        'communication/interface_can.cpp',
+--        'communication/interface_i2c.cpp',
         'fibre/cpp/protocol.cpp',
-        'FreeRTOS-openocd.c'
     },
     includes={
         'Drivers/DRV8301',
         'MotorControl',
+        'USB',
         'fibre/cpp/include',
+        'Board/v3/Inc',
         '.'
     }
 }

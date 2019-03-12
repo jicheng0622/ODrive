@@ -56,13 +56,6 @@
 /* USER CODE BEGIN Includes */
 #include "stm32f4xx_hal.h"
 
-#if HW_VERSION_MAJOR == 3 && HW_VERSION_MINOR == 1 \
-||  HW_VERSION_MAJOR == 3 && HW_VERSION_MINOR == 2
-#include "prev_board_ver/main_V3_2.h"
-#elif HW_VERSION_MAJOR == 3 && HW_VERSION_MINOR == 3 \
-||  HW_VERSION_MAJOR == 3 && HW_VERSION_MINOR == 4
-#include "prev_board_ver/main_V3_4.h"
-#else
 /* USER CODE END Includes */
 
 /* Private define ------------------------------------------------------------*/
@@ -74,12 +67,7 @@
 #define TIM_APB1_DEADTIME_CLOCKS 40
 #define TIM_1_8_RCR 2
 
-#define M0_nCS_Pin GPIO_PIN_13
-#define M0_nCS_GPIO_Port GPIOC
-#define M1_nCS_Pin GPIO_PIN_14
-#define M1_nCS_GPIO_Port GPIOC
-#define M1_ENC_Z_Pin GPIO_PIN_15
-#define M1_ENC_Z_GPIO_Port GPIOC
+/*
 #define M0_IB_Pin GPIO_PIN_0
 #define M0_IB_GPIO_Port GPIOC
 #define M0_IC_Pin GPIO_PIN_1
@@ -88,38 +76,20 @@
 #define M1_IC_GPIO_Port GPIOC
 #define M1_IB_Pin GPIO_PIN_3
 #define M1_IB_GPIO_Port GPIOC
-#define GPIO_1_Pin GPIO_PIN_0
-#define GPIO_1_GPIO_Port GPIOA
-#define GPIO_2_Pin GPIO_PIN_1
-#define GPIO_2_GPIO_Port GPIOA
-#define GPIO_3_Pin GPIO_PIN_2
-#define GPIO_3_GPIO_Port GPIOA
-#define GPIO_4_Pin GPIO_PIN_3
-#define GPIO_4_GPIO_Port GPIOA
 #define M1_TEMP_Pin GPIO_PIN_4
 #define M1_TEMP_GPIO_Port GPIOA
 #define AUX_TEMP_Pin GPIO_PIN_5
 #define AUX_TEMP_GPIO_Port GPIOA
-#define VBUS_S_Pin GPIO_PIN_6
-#define VBUS_S_GPIO_Port GPIOA
 #define M1_AL_Pin GPIO_PIN_7
 #define M1_AL_GPIO_Port GPIOA
-#define GPIO_5_Pin GPIO_PIN_4
-#define GPIO_5_GPIO_Port GPIOC
 #define M0_TEMP_Pin GPIO_PIN_5
 #define M0_TEMP_GPIO_Port GPIOC
 #define M1_BL_Pin GPIO_PIN_0
 #define M1_BL_GPIO_Port GPIOB
 #define M1_CL_Pin GPIO_PIN_1
 #define M1_CL_GPIO_Port GPIOB
-#define GPIO_6_Pin GPIO_PIN_2
-#define GPIO_6_GPIO_Port GPIOB
-#define AUX_L_Pin GPIO_PIN_10
-#define AUX_L_GPIO_Port GPIOB
-#define AUX_H_Pin GPIO_PIN_11
-#define AUX_H_GPIO_Port GPIOB
-#define EN_GATE_Pin GPIO_PIN_12
-#define EN_GATE_GPIO_Port GPIOB
+
+
 #define M0_AL_Pin GPIO_PIN_13
 #define M0_AL_GPIO_Port GPIOB
 #define M0_BL_Pin GPIO_PIN_14
@@ -132,28 +102,65 @@
 #define M1_BH_GPIO_Port GPIOC
 #define M1_CH_Pin GPIO_PIN_8
 #define M1_CH_GPIO_Port GPIOC
-#define M0_ENC_Z_Pin GPIO_PIN_9
-#define M0_ENC_Z_GPIO_Port GPIOC
 #define M0_AH_Pin GPIO_PIN_8
 #define M0_AH_GPIO_Port GPIOA
 #define M0_BH_Pin GPIO_PIN_9
 #define M0_BH_GPIO_Port GPIOA
 #define M0_CH_Pin GPIO_PIN_10
 #define M0_CH_GPIO_Port GPIOA
-#define GPIO_7_Pin GPIO_PIN_15
-#define GPIO_7_GPIO_Port GPIOA
+*/
+
+// refactored:
+/*
+#define VBUS_S_Pin GPIO_PIN_6
+#define VBUS_S_GPIO_Port GPIOA
+
 #define nFAULT_Pin GPIO_PIN_2
 #define nFAULT_GPIO_Port GPIOD
-#define GPIO_8_Pin GPIO_PIN_3
-#define GPIO_8_GPIO_Port GPIOB
+#define EN_GATE_Pin GPIO_PIN_12
+#define EN_GATE_GPIO_Port GPIOB
+#define M0_nCS_Pin GPIO_PIN_13
+#define M0_nCS_GPIO_Port GPIOC
+#define M1_nCS_Pin GPIO_PIN_14
+#define M1_nCS_GPIO_Port GPIOC
+
 #define M0_ENC_A_Pin GPIO_PIN_4
 #define M0_ENC_A_GPIO_Port GPIOB
 #define M0_ENC_B_Pin GPIO_PIN_5
 #define M0_ENC_B_GPIO_Port GPIOB
+#define M0_ENC_Z_Pin GPIO_PIN_9
+#define M0_ENC_Z_GPIO_Port GPIOC
+
 #define M1_ENC_A_Pin GPIO_PIN_6
 #define M1_ENC_A_GPIO_Port GPIOB
 #define M1_ENC_B_Pin GPIO_PIN_7
 #define M1_ENC_B_GPIO_Port GPIOB
+#define M1_ENC_Z_Pin GPIO_PIN_15
+#define M1_ENC_Z_GPIO_Port GPIOC
+
+#define GPIO_1_Pin GPIO_PIN_0
+#define GPIO_1_GPIO_Port GPIOA
+#define GPIO_2_Pin GPIO_PIN_1
+#define GPIO_2_GPIO_Port GPIOA
+#define GPIO_3_Pin GPIO_PIN_2
+#define GPIO_3_GPIO_Port GPIOA
+#define GPIO_4_Pin GPIO_PIN_3
+#define GPIO_4_GPIO_Port GPIOA
+#define GPIO_5_Pin GPIO_PIN_4
+#define GPIO_5_GPIO_Port GPIOC
+#define GPIO_6_Pin GPIO_PIN_2
+#define GPIO_6_GPIO_Port GPIOB
+#define GPIO_7_Pin GPIO_PIN_15
+#define GPIO_7_GPIO_Port GPIOA
+#define GPIO_8_Pin GPIO_PIN_3
+#define GPIO_8_GPIO_Port GPIOB
+
+
+#define AUX_L_Pin GPIO_PIN_10
+#define AUX_L_GPIO_Port GPIOB
+#define AUX_H_Pin GPIO_PIN_11
+#define AUX_H_GPIO_Port GPIOB
+*/
 
 /* ########################## Assert Selection ############################## */
 /**
@@ -163,7 +170,7 @@
 /* #define USE_FULL_ASSERT    1U */
 
 /* USER CODE BEGIN Private defines */
-#endif
+//#endif
 
 //TODO: make this come automatically out of CubeMX somehow
 #define TIM_TIME_BASE TIM14
@@ -171,24 +178,23 @@
 #define CURRENT_MEAS_PERIOD ( (float)2*TIM_1_8_PERIOD_CLOCKS*(TIM_1_8_RCR+1) / (float)TIM_1_8_CLOCK_HZ )
 #define CURRENT_MEAS_HZ ( (float)(TIM_1_8_CLOCK_HZ) / (float)(2*TIM_1_8_PERIOD_CLOCKS*(TIM_1_8_RCR+1)) )
 
-#if HW_VERSION_VOLTAGE >= 48
-#define VBUS_S_DIVIDER_RATIO 19.0f
-#define VBUS_OVERVOLTAGE_LEVEL 52.0f
-#elif HW_VERSION_VOLTAGE == 24
-#define VBUS_S_DIVIDER_RATIO 11.0f
-#define VBUS_OVERVOLTAGE_LEVEL 26.0f
-#else
-#error "unknown board voltage"
-#endif
-
 /* USER CODE END Private defines */
 
-#ifdef __cplusplus
- extern "C" {
-#endif
-void _Error_Handler(char *, int);
+#include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void _Error_Handler(char *, int);
 #define Error_Handler() _Error_Handler(__FILE__, __LINE__)
+
+/**
+ * @brief Initializes low level system features such as clocks, fault handlers
+ * and memories.
+ */
+bool system_init(void);
+
 #ifdef __cplusplus
 }
 #endif

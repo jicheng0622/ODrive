@@ -5,20 +5,20 @@
 #include "odrive_main.h"
 
 
-Motor::Motor(const MotorHardwareConfig_t& hw_config,
-             const GateDriverHardwareConfig_t& gate_driver_config,
-             Config_t& config) :
-        hw_config_(hw_config),
-        gate_driver_config_(gate_driver_config),
-        config_(config),
-        gate_driver_({
-            .spiHandle = gate_driver_config_.spi,
-            .EngpioHandle = gate_driver_config_.enable_port,
-            .EngpioNumber = gate_driver_config_.enable_pin,
-            .nCSgpioHandle = gate_driver_config_.nCS_port,
-            .nCSgpioNumber = gate_driver_config_.nCS_pin,
-        }) {
-    update_current_controller_gains();
+Motor::Motor(STM32_Timer_t* timer,
+             GateDriver_t* gate_driver_a,
+             GateDriver_t* gate_driver_b,
+             GateDriver_t* gate_driver_c,
+             CurrentSensor_t* current_sensor_a,
+             CurrentSensor_t* current_sensor_b,
+             CurrentSensor_t* current_sensor_c) :
+        timer_(timer),
+        gate_driver_a(gate_driver_a),
+        gate_driver_b(gate_driver_b),
+        gate_driver_c(gate_driver_c),
+        current_sensor_a(current_sensor_a),
+        current_sensor_b(current_sensor_b),
+        current_sensor_c(current_sensor_c) {
 }
 
 // @brief Arms the PWM outputs that belong to this motor.
@@ -57,82 +57,98 @@ void Motor::reset_current_control() {
 // TODO: allow update on user-request or update automatically via hooks
 void Motor::update_current_controller_gains() {
     // Calculate current control gains
-    current_control_.p_gain = config_.current_control_bandwidth * config_.phase_inductance;
-    float plant_pole = config_.phase_resistance / config_.phase_inductance;
+    current_control_.p_gain = config_->current_control_bandwidth * config_->phase_inductance;
+    float plant_pole = config_->phase_resistance / config_->phase_inductance;
     current_control_.i_gain = plant_pole * current_control_.p_gain;
 }
 
 // @brief Set up the gate drivers
-void Motor::DRV8301_setup() {
-    // for reference:
-    // 20V/V on 500uOhm gives a range of +/- 150A
-    // 40V/V on 500uOhm gives a range of +/- 75A
-    // 20V/V on 666uOhm gives a range of +/- 110A
-    // 40V/V on 666uOhm gives a range of +/- 55A
+bool Motor::setup(Config_t* config) {
+    config_ = config;
 
-    // Solve for exact gain, then snap down to have equal or larger range as requested
-    // or largest possible range otherwise
+    update_current_controller_gains();
+
+    // Init PWM
+    timer.setup(
+        period = TIM_1_8_PERIOD_CLOCKS,
+        repetition_counter = TIM_1_8_RCR,
+        counter_mode = UP_DOWN,
+    );
+    timer.setup_pwm(1, pwm_ah_gpio, pwm_al_gpio, true, true);
+    timer.setup_pwm(2, pwm_bh_gpio, pwm_bl_gpio, true, true);
+    timer.setup_pwm(3, pwm_ch_gpio, pwm_cl_gpio, true, true);
+    timer.setup_pwm(4, nullptr, nullptr, true, true); // required to trigger ADC
+    timer.set_dead_time(TIM_1_8_DEADTIME_CLOCKS);
+    timer.enable_interrupt(tim_update_cb, this);
+    //timer.enable_interrupt(TRIGGER_AND_COMMUTATION, 0, 0); // TODO: M1 used to enable this one too, why?
+
+
     static const float kMargin = 0.90f;
     static const float kTripMargin = 1.0f; // Trip level is at edge of linear range of amplifer
-    static const float max_output_swing = 1.35f; // [V] out of amplifier
-    float max_unity_gain_current = kMargin * max_output_swing * hw_config_.shunt_conductance; // [A]
-    float requested_gain = max_unity_gain_current / config_.requested_current_range; // [V/V]
 
-    // Decoding array for snapping gain
-    std::array<std::pair<float, DRV8301_ShuntAmpGain_e>, 4> gain_choices = { 
-        std::make_pair(10.0f, DRV8301_ShuntAmpGain_10VpV),
-        std::make_pair(20.0f, DRV8301_ShuntAmpGain_20VpV),
-        std::make_pair(40.0f, DRV8301_ShuntAmpGain_40VpV),
-        std::make_pair(80.0f, DRV8301_ShuntAmpGain_80VpV)
-    };
+    if (!gate_driver_a || !gate_driver_b || !gate_driver_c)
+        return false;
 
-    // We use lower_bound in reverse because it snaps up by default, we want to snap down.
-    auto gain_snap_down = std::lower_bound(gain_choices.crbegin(), gain_choices.crend(), requested_gain, 
-    [](std::pair<float, DRV8301_ShuntAmpGain_e> pair, float val){
-        return pair.first > val;
-    });
+    // Init ADC
+    if (!gate_driver_a->setup(timer))
+        return false;
+    if (!gate_driver_b->setup(timer))
+        return false;
+    if (!gate_driver_c->setup(timer))
+        return false;
 
-    // If we snap to outside the array, clip to smallest val
-    if(gain_snap_down == gain_choices.crend())
-       --gain_snap_down;
+    if (!gate_driver_a->setup(timer))
+        return false;
+    if (!gate_driver_b->setup(timer))
+        return false;
+    if (!gate_driver_c->setup(timer))
+        return false;
 
-    // Values for current controller
-    phase_current_rev_gain_ = 1.0f / gain_snap_down->first;
+    if (!current_sensor_a || !current_sensor_b || !current_sensor_c)
+        return false;
+
+    if (!current_sensor_a->setup(config_->requested_current_range / kMargin))
+        return false;
+    if (!current_sensor_b->setup(config_->requested_current_range / kMargin))
+        return false;
+    if (!current_sensor_c->setup(config_->requested_current_range / kMargin))
+        return false;
+
+    float range_a = current_sensor_a->get_range();
+    float range_b = current_sensor_b->get_range();
+    float range_c = current_sensor_c->get_range();
+
+    if (range_a != range_b || range_b != range_c)
+        return false;
+
     // Clip all current control to actual usable range
-    current_control_.max_allowed_current = max_unity_gain_current * phase_current_rev_gain_;
+    current_control_.max_allowed_current = range_a;
     // Set trip level
     current_control_.overcurrent_trip_level = (kTripMargin / kMargin) * current_control_.max_allowed_current;
 
-    // We now have the gain settings we want to use, lets set up DRV chip
-    DRV_SPI_8301_Vars_t* local_regs = &gate_driver_regs_;
-    DRV8301_enable(&gate_driver_);
-    DRV8301_setupSpi(&gate_driver_, local_regs);
+    return true;
+}
 
-    local_regs->Ctrl_Reg_1.OC_MODE = DRV8301_OcMode_LatchShutDown;
-    // Overcurrent set to approximately 150A at 100degC. This may need tweaking.
-    local_regs->Ctrl_Reg_1.OC_ADJ_SET = DRV8301_VdsLevel_0p730_V;
-    local_regs->Ctrl_Reg_2.GAIN = gain_snap_down->second;
+bool Motor::enable() {
+    if (!current_sensor_a || !current_sensor_b || !current_sensor_c)
+        return false;
 
-    local_regs->SndCmd = true;
-    DRV8301_writeData(&gate_driver_, local_regs);
-    local_regs->RcvCmd = true;
-    DRV8301_readData(&gate_driver_, local_regs);
+    current_sensor_a->subscribe(&pwm_trig_adc_cb, this);
+    current_sensor_b->subscribe(&pwm_trig_adc_cb, this);
+    current_sensor_c->subscribe(&pwm_trig_adc_cb, this);
+
+    return true;
 }
 
 // @brief Checks if the gate driver is in operational state.
 // @returns: true if the gate driver is OK (no fault), false otherwise
 bool Motor::check_DRV_fault() {
-    //TODO: make this pin configurable per motor ch
-    GPIO_PinState nFAULT_state = HAL_GPIO_ReadPin(gate_driver_config_.nFAULT_port, gate_driver_config_.nFAULT_pin);
-    if (nFAULT_state == GPIO_PIN_RESET) {
-        // Update DRV Fault Code
-        drv_fault_ = DRV8301_getFaultType(&gate_driver_);
-        // Update/Cache all SPI device registers
-        // DRV_SPI_8301_Vars_t* local_regs = &gate_driver_regs_;
-        // local_regs->RcvCmd = true;
-        // DRV8301_readData(&gate_driver_, local_regs);
+    if (!gate_driver_a->check_fault())
         return false;
-    };
+    if (!gate_driver_b->check_fault())
+        return false;
+    if (!gate_driver_c->check_fault())
+        return false;
     return true;
 }
 
@@ -144,20 +160,18 @@ void Motor::set_error(Motor::Error_t error){
 }
 
 float Motor::get_inverter_temp() {
-    float adc = adc_measurements_[hw_config_.inverter_thermistor_adc_ch];
-    float normalized_voltage = adc / adc_full_scale;
-    return horner_fma(normalized_voltage, thermistor_poly_coeffs, thermistor_num_coeffs);
+    return inverter_thermistor_.read_temp();
 }
 
 bool Motor::update_thermal_limits() {
     float fet_temp = get_inverter_temp();
-    float temp_margin = config_.inverter_temp_limit_upper - fet_temp;
-    float derating_range = config_.inverter_temp_limit_upper - config_.inverter_temp_limit_lower;
-    thermal_current_lim_ = config_.current_lim * (temp_margin / derating_range);
+    float temp_margin = config_->inverter_temp_limit_upper - fet_temp;
+    float derating_range = config_->inverter_temp_limit_upper - config_->inverter_temp_limit_lower;
+    thermal_current_lim_ = config_->current_lim * (temp_margin / derating_range);
     if (!(thermal_current_lim_ >= 0.0f)) { //Funny polarity to also catch NaN
         thermal_current_lim_ = 0.0f;
     }
-    if (fet_temp > config_.inverter_temp_limit_upper + 5) {
+    if (fet_temp > config_->inverter_temp_limit_upper + 5) {
         set_error(ERROR_INVERTER_OVER_TEMP);
         return false;
     }
@@ -178,9 +192,9 @@ bool Motor::do_checks() {
 
 float Motor::effective_current_lim() {
     // Configured limit
-    float current_lim = config_.current_lim;
+    float current_lim = config_->current_lim;
     // Hardware limit
-    if (axis_->motor_.config_.motor_type == Motor::MOTOR_TYPE_GIMBAL) {
+    if (axis_->motor_.config_->motor_type == Motor::MOTOR_TYPE_GIMBAL) {
         current_lim = std::min(current_lim, 0.98f*one_by_sqrt3*vbus_voltage);
     } else {
         current_lim = std::min(current_lim, axis_->motor_.current_control_.max_allowed_current);
@@ -193,7 +207,7 @@ float Motor::effective_current_lim() {
 
 void Motor::log_timing(TimingLog_t log_idx) {
     static const uint16_t clocks_per_cnt = (uint16_t)((float)TIM_1_8_CLOCK_HZ / (float)TIM_APB1_CLOCK_HZ);
-    uint16_t timing = clocks_per_cnt * htim13.Instance->CNT; // TODO: Use a hw_config
+    uint16_t timing = clocks_per_cnt * tim13.htim.Instance->CNT; // TODO: Use a hw_config
 
     if (log_idx < TIMING_LOG_NUM_SLOTS) {
         timing_log_[log_idx] = timing;
@@ -204,7 +218,7 @@ float Motor::phase_current_from_adcval(uint32_t ADCValue) {
     int adcval_bal = (int)ADCValue - (1 << 11);
     float amp_out_volt = (3.3f / (float)(1 << 12)) * (float)adcval_bal;
     float shunt_volt = amp_out_volt * phase_current_rev_gain_;
-    float current = shunt_volt * hw_config_.shunt_conductance;
+    float current = shunt_volt * hw_config_->shunt_conductance;
     return current;
 }
 
@@ -240,7 +254,7 @@ bool Motor::measure_phase_resistance(float test_current, float max_voltage) {
     //    return false; // error set inside enqueue_voltage_timings
 
     float R = test_voltage / test_current;
-    config_.phase_resistance = R;
+    config_->phase_resistance = R;
     return true; // if we ran to completion that means success
 }
 
@@ -274,7 +288,7 @@ bool Motor::measure_phase_inductance(float voltage_low, float voltage_high) {
     float dI_by_dt = (Ialphas[1] - Ialphas[0]) / (current_meas_period * (float)num_cycles);
     float L = v_L / dI_by_dt;
 
-    config_.phase_inductance = L;
+    config_->phase_inductance = L;
     // TODO arbitrary values set for now
     if (L < 2e-6f || L > 4000e-6f)
         return set_error(ERROR_PHASE_INDUCTANCE_OUT_OF_RANGE), false;
@@ -283,13 +297,13 @@ bool Motor::measure_phase_inductance(float voltage_low, float voltage_high) {
 
 
 bool Motor::run_calibration() {
-    float R_calib_max_voltage = config_.resistance_calib_max_voltage;
-    if (config_.motor_type == MOTOR_TYPE_HIGH_CURRENT) {
-        if (!measure_phase_resistance(config_.calibration_current, R_calib_max_voltage))
+    float R_calib_max_voltage = config_->resistance_calib_max_voltage;
+    if (config_->motor_type == MOTOR_TYPE_HIGH_CURRENT) {
+        if (!measure_phase_resistance(config_->calibration_current, R_calib_max_voltage))
             return false;
         if (!measure_phase_inductance(-R_calib_max_voltage, R_calib_max_voltage))
             return false;
-    } else if (config_.motor_type == MOTOR_TYPE_GIMBAL) {
+    } else if (config_->motor_type == MOTOR_TYPE_GIMBAL) {
         // no calibration needed
     } else {
         return false;
@@ -407,19 +421,19 @@ bool Motor::FOC_current(float Id_des, float Iq_des, float I_phase, float pwm_pha
 
 
 bool Motor::update(float current_setpoint, float phase, float phase_vel) {
-    current_setpoint *= config_.direction;
-    phase *= config_.direction;
-    phase_vel *= config_.direction;
+    current_setpoint *= config_->direction;
+    phase *= config_->direction;
+    phase_vel *= config_->direction;
 
     float pwm_phase = phase + 1.5f * current_meas_period * phase_vel;
 
     // Execute current command
     // TODO: move this into the mot
-    if (config_.motor_type == MOTOR_TYPE_HIGH_CURRENT) {
+    if (config_->motor_type == MOTOR_TYPE_HIGH_CURRENT) {
         if(!FOC_current(0.0f, current_setpoint, phase, pwm_phase)){
             return false;
         }
-    } else if (config_.motor_type == MOTOR_TYPE_GIMBAL) {
+    } else if (config_->motor_type == MOTOR_TYPE_GIMBAL) {
         //In gimbal motor mode, current is reinterptreted as voltage.
         if(!FOC_voltage(0.0f, current_setpoint, pwm_phase))
             return false;
