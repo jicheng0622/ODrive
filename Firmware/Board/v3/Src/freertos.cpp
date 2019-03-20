@@ -51,7 +51,6 @@
 /* Includes ------------------------------------------------------------------*/
 #include "FreeRTOS.h"
 #include "task.h"
-#include "main.h"
 #include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -159,7 +158,8 @@ bool freertos_init(STM32_Timer_t* system_timer, main_task_t main_task) {
         STM32_Timer_t::UP,
         uwPrescalerValue
     );
-    tim14.enable_update_interrupt(tick_callback, nullptr);
+    tim14.on_update_.set<void>(tick_callback, nullptr);
+    tim14.enable_update_interrupt();
     tim14.start();
 
     /* Create the thread(s) */

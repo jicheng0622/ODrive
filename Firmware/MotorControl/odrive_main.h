@@ -30,6 +30,19 @@ extern "C" {
 //default timeout waiting for phase measurement signals
 #define PH_CURRENT_MEAS_TIMEOUT 2 // [ms]
 
+
+// TODO: make dynamic
+#define TIM_1_8_CLOCK_HZ 168000000
+#define TIM_1_8_PERIOD_CLOCKS 3500
+#define TIM_1_8_DEADTIME_CLOCKS 20
+#define TIM_APB1_CLOCK_HZ 84000000
+#define TIM_APB1_PERIOD_CLOCKS 4096
+#define TIM_APB1_DEADTIME_CLOCKS 40
+#define TIM_1_8_RCR 2
+
+#define CURRENT_MEAS_PERIOD ( (float)2*TIM_1_8_PERIOD_CLOCKS*(TIM_1_8_RCR+1) / (float)TIM_1_8_CLOCK_HZ )
+#define CURRENT_MEAS_HZ ( (float)(TIM_1_8_CLOCK_HZ) / (float)(2*TIM_1_8_PERIOD_CLOCKS*(TIM_1_8_RCR+1)) )
+
 //TODO clean this up
 static const float current_meas_period = CURRENT_MEAS_PERIOD;
 static const int current_meas_hz = CURRENT_MEAS_HZ;
@@ -105,6 +118,11 @@ extern STM32_USBRxEndpoint_t odrive_rx_endpoint;
 
 extern STM32_GPIO_t* gpios[];
 extern const size_t num_gpios;
+
+// Sampling port A,B,C (coherent with current meas timing)
+// TODO: make more flexible
+static constexpr const GPIO_TypeDef* GPIOs_to_samp[] = { GPIOA, GPIOB, GPIOC };
+static constexpr const int n_GPIO_samples = sizeof(GPIOs_to_samp) / sizeof(GPIOs_to_samp[0]);
 
 class Axis;
 class Motor;

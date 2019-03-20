@@ -1,50 +1,14 @@
 #ifndef __USB_HPP
 #define __USB_HPP
 
+#include <subscriber.hpp>
+
 #include <stdint.h>
 #include <stdlib.h>
-
 
 #include "usbd_def.h" // TODO: get rid of this. Only needed for align macros
 
 #define USB_CONFIG_DESC_SIZ                         128 // expected size: 67 + 39 TODO: make automatic using templates
-
-// TODO: move somewhere else
-template<typename ... TArgs>
-class Subscriber {
-public:
-    Subscriber() : callback_(nullptr), ctx_(nullptr) {}
-
-    template<typename TObj, void (TObj::*func)(TArgs...)>
-    void set(TObj& obj) {
-        callback_ = nullptr;
-        ctx_ = &obj;
-        callback_ = [](void* ctx, TArgs ... args){ if (ctx) (((TObj*)ctx)->*func)(args...); };
-    }
-
-    template<typename TObj>
-    void set(void (*func)(TObj*, TArgs...), TObj& obj) {
-        callback_ = nullptr;
-        ctx_ = &obj;
-        callback_ = reinterpret_cast<void (*)(void*, TArgs...)>(func);
-    }
-
-    void unset() {
-        callback_ = nullptr;
-        ctx_ = nullptr;
-    }
-
-    void invoke(TArgs ... args) {
-        if (callback_) {
-            callback_(ctx_, args...);
-        }
-    }
-
-private:
-    void (*callback_)(void*, TArgs...);
-    void* ctx_;
-};
-
 
 class USBClass_t;
 class USBVendorRequestHandler_t;

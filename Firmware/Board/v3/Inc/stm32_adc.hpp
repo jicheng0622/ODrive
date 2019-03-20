@@ -26,7 +26,7 @@ public:
     bool setup() final { return true; } // currently unused
     bool get_voltage(float *value) final;
     bool get_normalized(float *value) final;
-    bool subscribe(void (*callback)(void*), void* ctx) final;
+    bool enable_updates() final;
 
     bool is_valid() {
         return adc && channel_num < 19;
@@ -36,9 +36,7 @@ public:
     }
 
     void handle_update() {
-        if (callback_) {
-            callback_(ctx_);
-        }
+        on_update_.invoke();
     }
 };
 

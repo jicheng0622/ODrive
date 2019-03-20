@@ -29,12 +29,16 @@ public:
         } {
     }
     
-    bool setup();
+    bool setup() final;
     bool check_fault();
-    float set_gain(float requested_gain);
-    float get_gain();
+    float set_gain(float requested_gain) final;
+    float get_gain() final;
 
-    float get_max_output_swing() {
+    float get_midpoint() final {
+        return 3.3f / 2.0f; // [V]
+    }
+
+    float get_max_output_swing() final {
         return 1.35f; // [V] out of amplifier
     }
 

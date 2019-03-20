@@ -7,6 +7,7 @@
 
 #include <stm32_tim.hpp>
 #include <gpio.hpp>
+#include <stm32_adc.hpp>
 
 class Encoder {
 public:
@@ -46,9 +47,10 @@ public:
         bool ignore_illegal_hall_state = false; // dont error on bad states like 000 or 111
     };
 
-    Encoder(STM32_Timer_t* counter, GPIO_t* index_gpio,
-            GPIO_t* hallA_gpio, GPIO_t* hallB_gpio, GPIO_t* hallC_gpio);
-    
+    Encoder(STM32_Timer_t* counter, STM32_GPIO_t* index_gpio,
+            STM32_GPIO_t* hallA_gpio, STM32_GPIO_t* hallB_gpio, STM32_GPIO_t* hallC_gpio,
+            STM32_ADCChannel_t* adc_sincos_s, STM32_ADCChannel_t* adc_sincos_c);
+
     bool setup(Config_t* config);
     void set_error(Error_t error);
     bool do_checks();
@@ -66,15 +68,18 @@ public:
     bool run_direction_find();
     bool run_offset_calibration();
     void sample_now();
+    void decode_hall_samples(uint16_t GPIO_samples[n_GPIO_samples]);
     bool update();
 
 
 
     STM32_Timer_t* counter_;
-    GPIO_t* index_gpio_;
-    GPIO_t* hallA_gpio_;
-    GPIO_t* hallB_gpio_;
-    GPIO_t* hallC_gpio_;
+    STM32_GPIO_t* index_gpio_;
+    STM32_GPIO_t* hallA_gpio_;
+    STM32_GPIO_t* hallB_gpio_;
+    STM32_GPIO_t* hallC_gpio_;
+    STM32_ADCChannel_t* adc_sincos_s_;
+    STM32_ADCChannel_t* adc_sincos_c_;
 
     Config_t* config_ = nullptr; // assigned in setup()
     Axis* axis_ = nullptr; // set by Axis constructor

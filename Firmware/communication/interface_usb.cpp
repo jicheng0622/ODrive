@@ -65,7 +65,7 @@ bool USBInterface::start_server(bool enable_ascii_protocol) {
     rx_endpoint_->on_init_.set<USBInterface>(
         [](USBInterface* obj){
             if (obj) obj->rx_endpoint_->start_rx(obj->rx_buf_, sizeof(obj->rx_buf_));
-        }, *this);
+        }, this);
 
     return true;
 }

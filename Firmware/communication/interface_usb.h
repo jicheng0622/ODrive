@@ -34,12 +34,12 @@ public:
             tx_endpoint_->on_tx_complete_.set<USBSender>(
                 [](USBSender* obj) {
                     if (obj) osSemaphoreRelease(obj->sem_tx_);
-                }, *this);
+                }, this);
 
             tx_endpoint_->on_init_.set<USBSender>(
                 [](USBSender* obj) {
                     if (obj) osSemaphoreRelease(obj->sem_tx_);
-                }, *this);
+                }, this);
         }
 
         int process_packet(const uint8_t* buffer, size_t length);

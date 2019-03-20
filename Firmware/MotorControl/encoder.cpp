@@ -2,13 +2,15 @@
 #include "odrive_main.h"
 
 
-Encoder::Encoder(STM32_Timer_t* counter, GPIO_t* index_gpio,
-                 GPIO_t* hallA_gpio, GPIO_t* hallB_gpio, GPIO_t* hallC_gpio) :
+Encoder::Encoder(STM32_Timer_t* counter, STM32_GPIO_t* index_gpio,
+                 STM32_GPIO_t* hallA_gpio, STM32_GPIO_t* hallB_gpio, STM32_GPIO_t* hallC_gpio,
+                 STM32_ADCChannel_t* adc_sincos_s, STM32_ADCChannel_t* adc_sincos_c) :
         counter_(counter),
         index_gpio_(index_gpio),
         hallA_gpio_(hallA_gpio),
         hallB_gpio_(hallB_gpio),
-        hallC_gpio_(hallC_gpio)
+        hallC_gpio_(hallC_gpio),
+        adc_sincos_s_(adc_sincos_s), adc_sincos_c_(adc_sincos_c)
 {
 }
 
@@ -42,6 +44,8 @@ bool Encoder::setup(Config_t* config) {
         return false;
     }
     set_idx_subscribe();
+
+    return true;
 }
 
 void Encoder::set_error(Error_t error) {
@@ -82,8 +86,8 @@ void Encoder::enc_index_cb() {
 
 void Encoder::set_idx_subscribe(bool override_enable) {
     if (override_enable || (config_->use_index && !config_->find_idx_on_lockin_only)) {
-        index_gpio_->setup(false, GPIO_t::INPUT, GPIO_t::PULL_DOWN);
-        index_gpio_->subscribe(enc_index_cb_wrapper, this);
+        index_gpio_->setup(GPIO_t::INPUT, GPIO_t::PULL_DOWN);
+        index_gpio_->subscribe(true, false, enc_index_cb_wrapper, this);
     }
 
     if (!config_->use_index || config_->find_idx_on_lockin_only) {
@@ -103,9 +107,9 @@ void Encoder::update_pll_gains() {
 
 void Encoder::check_pre_calibrated() {
     if (!is_ready_)
-        config_.pre_calibrated = false;
-    if (config_.mode == MODE_INCREMENTAL && !index_found_)
-        config_.pre_calibrated = false;
+        config_->pre_calibrated = false;
+    if (config_->mode == MODE_INCREMENTAL && !index_found_)
+        config_->pre_calibrated = false;
 }
 
 // Function that sets the current encoder count to a desired 32-bit value.
@@ -117,7 +121,7 @@ void Encoder::set_linear_count(int32_t count) {
     shadow_count_ = count;
     pos_estimate_ = (float)count;
     //Write hardware last
-    hw_config_->timer->Instance->CNT = count;
+    counter_->htim.Instance->CNT = count;
 
     cpu_exit_critical(prim);
 }
@@ -211,7 +215,7 @@ bool Encoder::run_offset_calibration() {
     axis_->run_control_loop([&](){
         if (!axis_->motor_.enqueue_voltage_timings(voltage_magnitude, 0.0f))
             return false; // error set inside enqueue_voltage_timings
-        axis_->motor_.log_timing(Motor::TIMING_LOG_ENC_CALIB);
+        //axis_->motor_.log_timing(Motor::TIMING_LOG_ENC_CALIB);
         return ++i < start_lock_duration * current_meas_hz;
     });
     if (axis_->error_ != Axis::ERROR_NONE)
@@ -228,7 +232,7 @@ bool Encoder::run_offset_calibration() {
         float v_beta = voltage_magnitude * our_arm_sin_f32(phase);
         if (!axis_->motor_.enqueue_voltage_timings(v_alpha, v_beta))
             return false; // error set inside enqueue_voltage_timings
-        axis_->motor_.log_timing(Motor::TIMING_LOG_ENC_CALIB);
+        //axis_->motor_.log_timing(Motor::TIMING_LOG_ENC_CALIB);
 
         encvaluesum += shadow_count_;
         
@@ -269,7 +273,7 @@ bool Encoder::run_offset_calibration() {
         float v_beta = voltage_magnitude * our_arm_sin_f32(phase);
         if (!axis_->motor_.enqueue_voltage_timings(v_alpha, v_beta))
             return false; // error set inside enqueue_voltage_timings
-        axis_->motor_.log_timing(Motor::TIMING_LOG_ENC_CALIB);
+        //axis_->motor_.log_timing(Motor::TIMING_LOG_ENC_CALIB);
 
         encvaluesum += shadow_count_;
         
@@ -301,7 +305,7 @@ static bool decode_hall(uint8_t hall_state, int32_t* hall_cnt) {
 void Encoder::sample_now() {
     switch (config_->mode) {
         case MODE_INCREMENTAL: {
-            tim_cnt_sample_ = (int16_t)counter_->Instance->CNT;
+            tim_cnt_sample_ = (int16_t)counter_->htim.Instance->CNT;
         } break;
 
         case MODE_HALL: {
@@ -309,14 +313,45 @@ void Encoder::sample_now() {
         } break;
 
         case MODE_SINCOS: {
-            sincos_sample_s_ = (get_adc_voltage(GPIO_3_GPIO_Port, GPIO_3_Pin) / 3.3f) - 0.5f;
-            sincos_sample_c_ = (get_adc_voltage(GPIO_4_GPIO_Port, GPIO_4_Pin) / 3.3f) - 0.5f;
+            float val_sin, val_cos;
+            adc_sincos_s_->get_normalized(&val_sin);
+            adc_sincos_c_->get_normalized(&val_cos);
+            sincos_sample_s_ = val_sin - 0.5f;
+            sincos_sample_c_ = val_cos - 0.5f;
         } break;
 
         default: {
            set_error(ERROR_UNSUPPORTED_ENCODER_MODE);
         } break;
     }
+}
+
+void Encoder::decode_hall_samples(uint16_t GPIO_samples[n_GPIO_samples]) {
+    STM32_GPIO_t* hall_gpios[] = {
+        hallC_gpio_,
+        hallB_gpio_,
+        hallA_gpio_,
+    };
+
+    uint8_t hall_state = 0x0;
+    for (int i = 0; i < 3; ++i) {
+        if (!hall_gpios[i]) {
+            continue;
+        }
+
+        int port_idx = 0;
+        for (;;) {
+            auto port = GPIOs_to_samp[port_idx];
+            if (port == hall_gpios[i]->port)
+                break;
+            ++port_idx;
+        }
+
+        hall_state <<= 1;
+        hall_state |= (GPIO_samples[port_idx] & (1U << hall_gpios[i]->pin_number)) ? 1 : 0;
+    }
+
+    hall_state_ = hall_state;
 }
 
 bool Encoder::update() {

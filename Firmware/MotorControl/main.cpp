@@ -1,5 +1,6 @@
 
 
+#include <stm32_system.h>
 #include <stm32_adc.hpp>
 #include <stm32_can.hpp>
 #include <stm32_gpio.hpp>
@@ -82,6 +83,9 @@ STM32_ADCChannel_t adc_m1_inv_temp = adc1_regular.get_channel(&pa4);
 Thermistor_t temp_sensor_m0_inv(&adc_m0_inv_temp, thermistor_poly_coeffs, thermistor_num_coeffs);
 Thermistor_t temp_sensor_m1_inv(&adc_m1_inv_temp, thermistor_poly_coeffs, thermistor_num_coeffs);
 
+STM32_ADCChannel_t adc_sincos_s = adc1_regular.get_channel(gpios[2]);
+STM32_ADCChannel_t adc_sincos_c = adc1_regular.get_channel(gpios[3]);
+
 #if 0
 Axis axes[2] = {
     Axis(
@@ -100,7 +104,9 @@ Axis axes[2] = {
             &pc9, // index_gpio
             &pb4, // hallA_gpio
             &pb5, // hallB_gpio
-            &pc9  // hallC_gpio (same as index pin)
+            &pc9, // hallC_gpio (same as index pin)
+            &adc_sincos_s, // sincos_s (same for both encoders)
+            &adc_sincos_c // sincos_c (same for both encoders)
         ),
         SensorlessEstimator(),
         Controller(),
@@ -124,7 +130,9 @@ Axis axes[2] = {
             &pc15, // index_gpio
             &pb6, // hallA_gpio
             &pb7, // hallB_gpio
-            &pc15 // hallC_gpio (same as index pin)
+            &pc15, // hallC_gpio (same as index pin)
+            &adc_sincos_s, // sincos_s (same for both encoders)
+            &adc_sincos_c // sincos_c (same for both encoders)
         ),
         SensorlessEstimator(),
         Controller(),
@@ -157,8 +165,6 @@ STM32_USBRxEndpoint_t odrive_rx_endpoint(&usb.hUsbDeviceFS, 0x03); /* EP3 OUT: O
 
 
 STM32_USART_t* comm_uart = &uart4;
-
-
 
 
 
@@ -483,6 +489,7 @@ int main_task(void) {
 
     // Start PWM and enable adc interrupts/callbacks
     start_adc_pwm();
+    motor.start_updates()
 
     // This delay serves two purposes:
     //  - Let the current sense calibration converge (the current

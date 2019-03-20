@@ -26,13 +26,13 @@ public:
     * @brief Initializes the ADC hardware.
     * Must be callable multiple times.
     */
-    bool setup(MODE mode, PULL pull, bool state = false);
+    virtual bool setup(MODE mode, PULL pull, bool state = false) = 0;
 
     /* @brief Sets the state of the GPIO */
-    void write(bool value);
+    virtual void write(bool value) = 0;
 
     /* @brief Reads the current state of the GPIO */
-    bool read();
+    virtual bool read() = 0;
 };
 
 #endif // __GPIO_HPP

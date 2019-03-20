@@ -233,10 +233,7 @@ bool STM32_ADCChannel_t::get_normalized(float* value) {
     return true;
 }
 
-bool STM32_ADCChannel_t::subscribe(void (*callback)(void*), void* ctx) {
-    callback_ = nullptr;
-    ctx_ = ctx;
-    callback_ = callback;
+bool STM32_ADCChannel_t::enable_updates() {
     if (!adc) {
         return false;
     } else {

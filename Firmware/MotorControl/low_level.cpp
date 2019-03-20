@@ -36,12 +36,10 @@
 float vbus_voltage = 12.0f;
 bool brake_resistor_armed = false;
 /* Private constant data -----------------------------------------------------*/
-static const GPIO_TypeDef* GPIOs_to_samp[] = { GPIOA, GPIOB, GPIOC };
-static const int num_GPIO = sizeof(GPIOs_to_samp) / sizeof(GPIOs_to_samp[0]); 
+
+
 /* Private variables ---------------------------------------------------------*/
 
-// Two motors, sampling port A,B,C (coherent with current meas timing)
-static uint16_t GPIO_port_samples [2][num_GPIO];
 /* CPU critical section helpers ----------------------------------------------*/
 
 /* Safety critical functions -------------------------------------------------*/
@@ -127,9 +125,11 @@ void safety_critical_apply_motor_pwm_timings(Motor& motor, uint16_t timings[3]) 
         motor.armed_state_ = Motor::ARMED_STATE_DISARMED;
     }
 
-    motor.timer_->Instance->CCR1 = timings[0];
-    motor.timer_->Instance->CCR2 = timings[1];
-    motor.timer_->Instance->CCR3 = timings[2];
+    motor.is_updating_pwm_timings_ = true;
+    motor.timer_->htim.Instance->CCR1 = timings[0];
+    motor.timer_->htim.Instance->CCR2 = timings[1];
+    motor.timer_->htim.Instance->CCR3 = timings[2];
+    motor.is_updating_pwm_timings_ = false;
 
     if (motor.armed_state_ == Motor::ARMED_STATE_WAITING_FOR_TIMINGS) {
         // timings were just loaded into the timer registers
@@ -383,148 +383,6 @@ void vbus_sense_adc_cb(void* ctx) {
     }
 }
 
-static void decode_hall_samples(Encoder& enc, uint16_t GPIO_samples[num_GPIO]) {
-    GPIO_t* hall_gpios[] = {
-        enc.hallC_gpio_,
-        enc.hallB_gpio_,
-        enc.hallA_gpio_,
-    };
-
-    uint8_t hall_state = 0x0;
-    for (int i = 0; i < 3; ++i) {
-        int port_idx = 0;
-        for (;;) {
-            auto port = GPIOs_to_samp[port_idx];
-            if (port == hall_gpios[i]->port)
-                break;
-            ++port_idx;
-        }
-
-        hall_state <<= 1;
-        hall_state |= (GPIO_samples[port_idx] & hall_gpios[i]->pin) ? 1 : 0;
-    }
-
-    enc.hall_state_ = hall_state;
-}
-
-// This is the callback from the ADC that we expect after the PWM has triggered an ADC conversion.
-// TODO: Document how the phasing is done, link to timing diagram
-void pwm_trig_adc_cb(ADC_HandleTypeDef* hadc, bool injected) {
-#define calib_tau 0.2f  //@TOTO make more easily configurable
-    static const float calib_filter_k = CURRENT_MEAS_PERIOD / calib_tau;
-
-    // Ensure ADCs are expected ones to simplify the logic below
-    if (!(hadc == &hadc2 || hadc == &hadc3)) {
-        low_level_fault(Motor::ERROR_ADC_FAILED);
-        return;
-    };
-
-    // Motor 0 is on Timer 1, which triggers ADC 2 and 3 on an injected conversion
-    // Motor 1 is on Timer 8, which triggers ADC 2 and 3 on a regular conversion
-    // If the corresponding timer is counting up, we just sampled in SVM vector 0, i.e. real current
-    // If we are counting down, we just sampled in SVM vector 7, with zero current
-    Axis& axis = injected ? *axes[0] : *axes[1];
-    int axis_num = injected ? 0 : 1;
-    Axis& other_axis = injected ? *axes[1] : *axes[0];
-    bool counting_down = axis.motor_.hw_config_.timer->Instance->CR1 & TIM_CR1_DIR;
-    bool current_meas_not_DC_CAL = !counting_down;
-
-    // Check the timing of the sequencing
-    if (current_meas_not_DC_CAL)
-        axis.motor_.log_timing(Motor::TIMING_LOG_ADC_CB_I);
-    else
-        axis.motor_.log_timing(Motor::TIMING_LOG_ADC_CB_DC);
-
-    bool update_timings = false;
-    if (hadc == &hadc2) {
-        if (&axis == axes[1] && counting_down)
-            update_timings = true; // update timings of M0
-        else if (&axis == axes[0] && !counting_down)
-            update_timings = true; // update timings of M1
-    }
-
-    // Load next timings for the motor that we're not currently sampling
-    if (update_timings) {
-        if (!other_axis.motor_.next_timings_valid_) {
-            // the motor control loop failed to update the timings in time
-            // we must assume that it died and therefore float all phases
-            bool was_armed = safety_critical_disarm_motor_pwm(other_axis.motor_);
-            if (was_armed) {
-                other_axis.motor_.error_ |= Motor::ERROR_CONTROL_DEADLINE_MISSED;
-            }
-        } else {
-            other_axis.motor_.next_timings_valid_ = false;
-            safety_critical_apply_motor_pwm_timings(
-                other_axis.motor_, other_axis.motor_.next_timings_
-            );
-        }
-        update_brake_current();
-    }
-
-    uint32_t ADCValue;
-    if (injected) {
-        ADCValue = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_1);
-    } else {
-        ADCValue = HAL_ADC_GetValue(hadc);
-    }
-    float current = axis.motor_.phase_current_from_adcval(ADCValue);
-
-    if (current_meas_not_DC_CAL) {
-        // ADC2 and ADC3 record the phB and phC currents concurrently,
-        // and their interrupts should arrive on the same clock cycle.
-        // We dispatch the callbacks in order, so ADC2 will always be processed before ADC3.
-        // Therefore we store the value from ADC2 and signal the thread that the
-        // measurement is ready when we receive the ADC3 measurement
-
-        // return or continue
-        if (hadc == &hadc2) {
-            axis.motor_.current_meas_.phB = current - axis.motor_.DC_calib_.phB;
-            return;
-        } else {
-            axis.motor_.current_meas_.phC = current - axis.motor_.DC_calib_.phC;
-        }
-        // Prepare hall readings
-        // TODO move this to inside encoder update function
-        decode_hall_samples(axis.encoder_, GPIO_port_samples[axis_num]);
-        // Trigger axis thread
-        axis.signal_current_meas();
-    } else {
-        // DC_CAL measurement
-        if (hadc == &hadc2) {
-            axis.motor_.DC_calib_.phB += (current - axis.motor_.DC_calib_.phB) * calib_filter_k;
-        } else {
-            axis.motor_.DC_calib_.phC += (current - axis.motor_.DC_calib_.phC) * calib_filter_k;
-        }
-    }
-}
-
-void tim_update_cb(TIM_HandleTypeDef* htim) {
-    
-    // If the corresponding timer is counting up, we just sampled in SVM vector 0, i.e. real current
-    // If we are counting down, we just sampled in SVM vector 7, with zero current
-    bool counting_down = htim->Instance->CR1 & TIM_CR1_DIR;
-    if (counting_down)
-        return;
-    
-    int sample_ch;
-    Axis* axis;
-    if (htim == &htim1) {
-        sample_ch = 0;
-        axis = axes[0];
-    } else if (htim == &htim8) {
-        sample_ch = 1;
-        axis = axes[1];
-    } else {
-        low_level_fault(Motor::ERROR_UNEXPECTED_TIMER_CALLBACK);
-        return;
-    }
-
-    axis->encoder_.sample_now();
-
-    for (int i = 0; i < num_GPIO; ++i) {
-        GPIO_port_samples[sample_ch][i] = GPIOs_to_samp[i]->IDR;
-    }
-}
 
 // @brief Sums up the Ibus contribution of each motor and updates the
 // brake resistor PWM accordingly.

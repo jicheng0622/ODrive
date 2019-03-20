@@ -217,7 +217,7 @@ bool STM32_Timer_t::get_general_irqn(IRQn_Type* irqn) {
     }
 };
 
-bool STM32_Timer_t::enable_update_interrupt(void (*callback)(void*), void* ctx) {
+bool STM32_Timer_t::enable_update_interrupt() {
     IRQn_Type irqn;
     if (htim.Instance == TIM1) {
         irqn = TIM1_UP_TIM10_IRQn;
@@ -227,17 +227,13 @@ bool STM32_Timer_t::enable_update_interrupt(void (*callback)(void*), void* ctx) 
         return false;
     }
 
-    update_callback = nullptr;
-    update_ctx = ctx;
-    update_callback = callback;
-
     HAL_NVIC_SetPriority(irqn, 0, 0);
     HAL_NVIC_EnableIRQ(irqn);
 
     return true;
 }
 
-bool STM32_Timer_t::enable_trigger_interrupt(void (*callback)(void*), void* ctx) {
+bool STM32_Timer_t::enable_trigger_interrupt() {
     IRQn_Type irqn;
     if (htim.Instance == TIM1) {
         irqn = TIM1_TRG_COM_TIM11_IRQn;
@@ -247,17 +243,13 @@ bool STM32_Timer_t::enable_trigger_interrupt(void (*callback)(void*), void* ctx)
         return false;
     }
 
-    trigger_callback = nullptr;
-    trigger_ctx = ctx;
-    trigger_callback = callback;
-
     HAL_NVIC_SetPriority(irqn, 0, 0);
     HAL_NVIC_EnableIRQ(irqn);
 
     return true;
 }
 
-bool STM32_Timer_t::enable_cc_interrupt(void (*callback)(void*, int, uint32_t), void* ctx) {
+bool STM32_Timer_t::enable_cc_interrupt() {
     IRQn_Type irqn;
     if (htim.Instance == TIM1) {
         irqn = TIM1_CC_IRQn;
@@ -267,17 +259,13 @@ bool STM32_Timer_t::enable_cc_interrupt(void (*callback)(void*, int, uint32_t), 
         return false;
     }
 
-    cc_callback = nullptr;
-    cc_ctx = ctx;
-    cc_callback = callback;
-
     HAL_NVIC_SetPriority(irqn, 0, 0);
     HAL_NVIC_EnableIRQ(irqn);
 
     return true;
 }
 
-bool STM32_Timer_t::enable_break_interrupt(void (*callback)(void*), void* ctx) {
+bool STM32_Timer_t::enable_break_interrupt() {
     IRQn_Type irqn;
     if (htim.Instance == TIM1) {
         irqn = TIM1_BRK_TIM9_IRQn;
@@ -286,10 +274,6 @@ bool STM32_Timer_t::enable_break_interrupt(void (*callback)(void*), void* ctx) {
     } else if (!get_general_irqn(&irqn)) {
         return false;
     }
-
-    break_callback = nullptr;
-    break_ctx = ctx;
-    break_callback = callback;
 
     HAL_NVIC_SetPriority(irqn, 0, 0);
     HAL_NVIC_EnableIRQ(irqn);
@@ -301,9 +285,7 @@ void STM32_Timer_t::handle_update_irq() {
     if (__HAL_TIM_GET_FLAG(&htim, TIM_FLAG_UPDATE)) {
         if (__HAL_TIM_GET_IT_SOURCE(&htim, TIM_IT_UPDATE)) {
             __HAL_TIM_CLEAR_IT(&htim, TIM_IT_UPDATE);
-            if (update_callback) {
-                update_callback(update_ctx);
-            }
+            on_update_.invoke();
         }
     }
 }
@@ -312,9 +294,7 @@ void STM32_Timer_t::handle_trigger_irq() {
     if (__HAL_TIM_GET_FLAG(&htim, TIM_FLAG_TRIGGER)) {
         if (__HAL_TIM_GET_IT_SOURCE(&htim, TIM_IT_TRIGGER)) {
             __HAL_TIM_CLEAR_IT(&htim, TIM_IT_TRIGGER);
-            if (trigger_callback) {
-                trigger_callback(trigger_ctx);
-            }
+            on_trigger_.invoke();
         }
     }
 }
@@ -323,33 +303,25 @@ void STM32_Timer_t::handle_cc_irq() {
     if (__HAL_TIM_GET_FLAG(&htim, TIM_FLAG_CC1)) {
         if (__HAL_TIM_GET_IT_SOURCE(&htim, TIM_IT_CC1)) {
             __HAL_TIM_CLEAR_IT(&htim, TIM_IT_CC1);
-            if (cc_callback) {
-                cc_callback(trigger_ctx, 1, htim.Instance->CCR1);
-            }
+            on_cc_.invoke(1, htim.Instance->CCR1);
         }
     }
     if (__HAL_TIM_GET_FLAG(&htim, TIM_FLAG_CC2)) {
         if (__HAL_TIM_GET_IT_SOURCE(&htim, TIM_IT_CC2)) {
             __HAL_TIM_CLEAR_IT(&htim, TIM_IT_CC2);
-            if (cc_callback) {
-                cc_callback(trigger_ctx, 2, htim.Instance->CCR2);
-            }
+            on_cc_.invoke(2, htim.Instance->CCR2);
         }
     }
     if (__HAL_TIM_GET_FLAG(&htim, TIM_FLAG_CC3)) {
         if (__HAL_TIM_GET_IT_SOURCE(&htim, TIM_IT_CC3)) {
             __HAL_TIM_CLEAR_IT(&htim, TIM_IT_CC3);
-            if (cc_callback) {
-                cc_callback(trigger_ctx, 3, htim.Instance->CCR3);
-            }
+            on_cc_.invoke(3, htim.Instance->CCR3);
         }
     }
     if (__HAL_TIM_GET_FLAG(&htim, TIM_FLAG_CC4)) {
         if (__HAL_TIM_GET_IT_SOURCE(&htim, TIM_IT_CC4)) {
             __HAL_TIM_CLEAR_IT(&htim, TIM_IT_CC4);
-            if (cc_callback) {
-                cc_callback(trigger_ctx, 4, htim.Instance->CCR4);
-            }
+            on_cc_.invoke(4, htim.Instance->CCR4);
         }
     }
 }
@@ -358,9 +330,7 @@ void STM32_Timer_t::handle_break_irq() {
     if (__HAL_TIM_GET_FLAG(&htim, TIM_FLAG_BREAK)) {
         if (__HAL_TIM_GET_IT_SOURCE(&htim, TIM_IT_BREAK)) {
             __HAL_TIM_CLEAR_IT(&htim, TIM_IT_BREAK);
-            if (break_callback) {
-                break_callback(break_ctx);
-            }
+            on_break_.invoke();
         }
     }
 }

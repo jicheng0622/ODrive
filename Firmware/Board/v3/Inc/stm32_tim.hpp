@@ -2,6 +2,7 @@
 #define __STM32_TIM_HPP
 
 #include <stm32_gpio.hpp>
+#include <subscriber.hpp>
 
 class STM32_Timer_t {
 public:
@@ -17,14 +18,17 @@ public:
     const STM32_GPIO_t** n_gpios[4];
     uint8_t gpio_af;
 
-    void (*update_callback)(void*) = nullptr;
-    void* update_ctx = nullptr;
-    void (*trigger_callback)(void*) = nullptr;
-    void* trigger_ctx = nullptr;
-    void (*cc_callback)(void*, int, uint32_t) = nullptr;
-    void* cc_ctx = nullptr;
-    void (*break_callback)(void*) = nullptr;
-    void* break_ctx = nullptr;
+    /** @brief Triggered on a timer update interrupt */
+    Subscriber<> on_update_;
+
+    /** @brief Triggered on a timer trigger interrupt */
+    Subscriber<> on_trigger_;
+
+    /** @brief Triggered on a timer cc interrupt */
+    Subscriber<uint32_t, uint32_t> on_cc_;
+
+    /** @brief Triggered on a timer break interrupt */
+    Subscriber<> on_break_;
 
     STM32_Timer_t(TIM_TypeDef* instance,
             const STM32_GPIO_t** ch1p_gpios, const STM32_GPIO_t** ch2p_gpios, const STM32_GPIO_t** ch3p_gpios, const STM32_GPIO_t** ch4p_gpios,
@@ -65,10 +69,22 @@ public:
     }
 
     bool get_general_irqn(IRQn_Type* irqn);
-    bool enable_update_interrupt(void (*callback)(void*), void* ctx);
-    bool enable_trigger_interrupt(void (*callback)(void*), void* ctx);
-    bool enable_cc_interrupt(void (*callback)(void*, int channel, uint32_t timestamp), void* ctx);
-    bool enable_break_interrupt(void (*callback)(void*), void* ctx);
+
+    /** @brief Enables the update interrupt.
+     * The on_update_ subscriber should be set first. */
+    bool enable_update_interrupt();
+
+    /** @brief Enables the trigger interrupt.
+     * The on_trigger_ subscriber should be set first. */
+    bool enable_trigger_interrupt();
+
+    /** @brief Enables the cc interrupt.
+     * The on_cc_ subscriber should be set first. */
+    bool enable_cc_interrupt();
+
+    /** @brief Enables the break interrupt.
+     * The on_break_ subscriber should be set first. */
+    bool enable_break_interrupt();
 
     void handle_update_irq();
     void handle_trigger_irq();
