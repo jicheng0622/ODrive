@@ -125,7 +125,7 @@ bool STM32_ADCRegular_t::apply() {
             return false;
 
         ADC_ChannelConfTypeDef sConfig;
-        sConfig.Channel = channel->channel_num << ADC_CR1_AWDCH_Pos;
+        sConfig.Channel = channel->channel_num_ << ADC_CR1_AWDCH_Pos;
         sConfig.Rank = i + 1;
         sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
         if (HAL_ADC_ConfigChannel(&adc->hadc, &sConfig) != HAL_OK)
@@ -141,7 +141,7 @@ bool STM32_ADCRegular_t::enable() {
         HAL_NVIC_EnableIRQ(ADC_IRQn);
 
         if (dma_) {
-            if (!HAL_ADC_Start_DMA(&adc->hadc, reinterpret_cast<uint32_t*>(raw_values), channel_sequence_length)) {
+            if (HAL_ADC_Start_DMA(&adc->hadc, reinterpret_cast<uint32_t*>(raw_values), channel_sequence_length) != HAL_OK) {
                 return false;
             }
         } else {
@@ -164,7 +164,7 @@ bool STM32_ADCInjected_t::apply() {
             return false;
 
         ADC_InjectionConfTypeDef sConfigInjected;
-        sConfigInjected.InjectedChannel = channel->channel_num << ADC_CR1_AWDCH_Pos;
+        sConfigInjected.InjectedChannel = channel->channel_num_ << ADC_CR1_AWDCH_Pos;
         sConfigInjected.InjectedRank = i + 1; // TODO not sure if the numbering should depend on sequence length, see note on ADC_JSQR (datasheet page 424)
         sConfigInjected.InjectedNbrOfConversion = channel_sequence_length;
         sConfigInjected.InjectedSamplingTime = ADC_SAMPLETIME_3CYCLES;
@@ -204,7 +204,7 @@ void STM32_ADCRegular_t::handle_irq() {
                 next_pos = 0;
             raw_values[next_pos] = adc->hadc.Instance->DR;
 
-            STM32_ADCChannel_t* channel = sequence[next_pos];
+            STM32_ADCChannel_t* channel = channel_sequence[next_pos];
             if (channel) {
                 channel->handle_update();
             }
@@ -217,7 +217,7 @@ void STM32_ADCRegular_t::handle_irq() {
 void STM32_ADCRegular_t::handle_dma_complete() {
     if (adc) {
         for (size_t i = 0; i < channel_sequence_length; ++i) {
-            STM32_ADCChannel_t* channel = sequence[i];
+            STM32_ADCChannel_t* channel = channel_sequence[i];
             if (channel) {
                 channel->handle_update();
             }
@@ -236,7 +236,7 @@ void STM32_ADCInjected_t::handle_irq() {
             raw_values[2] = adc->hadc.Instance->JDR3;
             raw_values[3] = adc->hadc.Instance->JDR4;
             for (size_t i = 0; i < channel_sequence_length; ++i) {
-                STM32_ADCChannel_t* channel = sequence[i];
+                STM32_ADCChannel_t* channel = channel_sequence[i];
                 if (channel) {
                     channel->handle_update();
                 }
@@ -249,7 +249,7 @@ bool STM32_ADCChannel_t::get_voltage(float* value) {
     static const float voltage_scale = adc_ref_voltage / adc_full_scale;
     uint16_t raw_value;
 
-    if (!adc || adc->get_raw_value(channel_num, &raw_value))
+    if (!adc_ || !adc_->get_raw_value(seq_pos_, &raw_value))
         return false;
 
     if (value)
@@ -261,7 +261,7 @@ bool STM32_ADCChannel_t::get_voltage(float* value) {
 bool STM32_ADCChannel_t::get_normalized(float* value) {
     uint16_t raw_value;
 
-    if (!adc || adc->get_raw_value(channel_num, &raw_value))
+    if (!adc_ || adc_->get_raw_value(seq_pos_, &raw_value))
         return false;
 
     if (value)
@@ -271,11 +271,11 @@ bool STM32_ADCChannel_t::get_normalized(float* value) {
 }
 
 bool STM32_ADCChannel_t::enable_updates() {
-    if (!adc) {
-        return false;
-    } else {
-        adc->enable();
+    if (adc_) {
+        adc_->enable();
         return true;
+    } else {
+        return false;
     }
 }
 
@@ -294,11 +294,11 @@ extern "C" void ADC_IRQHandler(void) {
 
 extern "C" void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
     if (hadc == &adc1.hadc) {
-        adc1_regular.handle_irq();
+        adc1_regular.handle_dma_complete();
     } else if (hadc == &adc2.hadc) {
-        adc2_regular.handle_irq();
+        adc2_regular.handle_dma_complete();
     } else if (hadc == &adc3.hadc) {
-        adc3_regular.handle_irq();
+        adc3_regular.handle_dma_complete();
     }
 }
 

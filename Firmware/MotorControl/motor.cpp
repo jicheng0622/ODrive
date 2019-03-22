@@ -168,20 +168,24 @@ bool Motor::setup() {
     safety_critical_apply_motor_pwm_timings(*this, timings);
 
     // Init PWM
-    timer_->setup(
-        TIM_1_8_PERIOD_CLOCKS /* period */,
-        STM32_Timer_t::UP_DOWN /* mode */,
-        0 /* prescaler */,
-        TIM_1_8_RCR /* repetition counter */
-    );
+    if (!timer_->setup(
+            TIM_1_8_PERIOD_CLOCKS /* period */,
+            STM32_Timer_t::UP_DOWN /* mode */,
+            0 /* prescaler */,
+            TIM_1_8_RCR /* repetition counter */
+        )) {
+        return false;
+    }
     // Ensure that debug halting of the core doesn't leave the motor PWM running
-    timer_->set_freeze_on_dbg(true);
-    timer_->setup_pwm(1, pwm_ah_gpio_, pwm_al_gpio_, true, true, TIM_1_8_PERIOD_CLOCKS / 2);
-    timer_->setup_pwm(2, pwm_bh_gpio_, pwm_bl_gpio_, true, true, TIM_1_8_PERIOD_CLOCKS / 2);
-    timer_->setup_pwm(3, pwm_ch_gpio_, pwm_cl_gpio_, true, true, TIM_1_8_PERIOD_CLOCKS / 2);
-    timer_->setup_pwm(4, nullptr, nullptr, true, true, TIM_1_8_PERIOD_CLOCKS / 2); // required to trigger ADC
-    timer_->set_dead_time(TIM_1_8_DEADTIME_CLOCKS);
-    timer_->on_update_.set<Motor, &Motor::handle_timer_update>(*this);
+    if (!timer_->set_freeze_on_dbg(true)
+        || !timer_->setup_pwm(1, pwm_ah_gpio_, pwm_al_gpio_, true, true, TIM_1_8_PERIOD_CLOCKS / 2)
+        || !timer_->setup_pwm(2, pwm_bh_gpio_, pwm_bl_gpio_, true, true, TIM_1_8_PERIOD_CLOCKS / 2)
+        || !timer_->setup_pwm(3, pwm_ch_gpio_, pwm_cl_gpio_, true, true, TIM_1_8_PERIOD_CLOCKS / 2)
+        || !timer_->setup_pwm(4, nullptr, nullptr, true, true, TIM_1_8_PERIOD_CLOCKS / 2) // required to trigger ADC
+        || !timer_->set_dead_time(TIM_1_8_DEADTIME_CLOCKS)
+        || !timer_->on_update_.set<Motor, &Motor::handle_timer_update>(*this)) {
+        return false;
+    }
     //timer_.enable_interrupt(TRIGGER_AND_COMMUTATION, 0, 0); // TODO: M1 used to enable this one too, why?
 
     static const float kMargin = 0.90f;
@@ -208,6 +212,8 @@ bool Motor::setup() {
     if (!current_sensor_c_->setup(config_.requested_current_range / kMargin))
         return false;
 
+    system_stats_.boot_progress++;
+
     float range_a, range_b, range_c;
     if (!current_sensor_a_->get_range(&range_a))
         return false;
@@ -219,14 +225,19 @@ bool Motor::setup() {
     if (range_a != range_b || range_b != range_c)
         return false;
 
+    system_stats_.boot_progress++;
+
     // Clip all current control to actual usable range
     current_control_.max_allowed_current = range_a;
     // Set trip level
     current_control_.overcurrent_trip_level = (kTripMargin / kMargin) * current_control_.max_allowed_current;
 
-    current_sensor_a_->on_update_.set<Motor, &Motor::handle_current_sensor_update>(*this);
-    current_sensor_b_->on_update_.set<Motor, &Motor::handle_current_sensor_update>(*this);
-    current_sensor_c_->on_update_.set<Motor, &Motor::handle_current_sensor_update>(*this);
+    if (!current_sensor_a_->on_update_.set<Motor, &Motor::handle_current_sensor_update>(*this))
+        return false;
+    if (!current_sensor_b_->on_update_.set<Motor, &Motor::handle_current_sensor_update>(*this))
+        return false;
+    if (!current_sensor_c_->on_update_.set<Motor, &Motor::handle_current_sensor_update>(*this))
+        return false;
 
     return true;
 }
@@ -238,9 +249,9 @@ bool Motor::start_updates() {
     // The inferred current sensor doesn't trigger update events so we ignore
     // the return values here. If none of them triggers, the PWM timings will not
     // be updated and the motor will go to error state.
-    current_sensor_a_->enable_updates(); // don't check return values here. Inferred
-    current_sensor_b_->enable_updates();
-    current_sensor_c_->enable_updates();
+    (void) current_sensor_a_->enable_updates(); // don't check return values here. Inferred
+    (void) current_sensor_b_->enable_updates();
+    (void) current_sensor_c_->enable_updates();
 
     uint32_t half_load = TIM_1_8_PERIOD_CLOCKS / 2;
     timer_->htim.Instance->CCR1 = half_load;

@@ -117,7 +117,7 @@ public:
 // how much headroom you have.
 static inline auto make_obj_tree() {
     return make_protocol_member_list(
-        //make_protocol_ro_property("vbus_voltage", &vbus_voltage),
+        make_protocol_ro_property("vbus_voltage", &vbus_voltage),
         make_protocol_ro_property("serial_number", &serial_number),
         make_protocol_ro_property("hw_version_major", &hw_version_major),
         make_protocol_ro_property("hw_version_minor", &hw_version_minor),
@@ -129,7 +129,9 @@ static inline auto make_obj_tree() {
         make_protocol_ro_property("user_config_loaded", const_cast<const bool *>(&user_config_loaded_)),
         //make_protocol_ro_property("brake_resistor_armed", &brake_resistor_armed),
         make_protocol_object("system_stats",
+            make_protocol_ro_property("fully_booted", &system_stats_.fully_booted),
             make_protocol_ro_property("uptime", &system_stats_.uptime),
+            make_protocol_ro_property("boot_progress", &system_stats_.boot_progress),
             make_protocol_ro_property("min_heap_space", &system_stats_.min_heap_space),
             make_protocol_ro_property("min_stack_space_axis0", &system_stats_.min_stack_space_axis0),
             make_protocol_ro_property("min_stack_space_axis1", &system_stats_.min_stack_space_axis1),
@@ -168,8 +170,8 @@ static inline auto make_obj_tree() {
             make_protocol_object("gpio3_analog_mapping", make_protocol_definitions(board_config.analog_mappings[2])),
             make_protocol_object("gpio4_analog_mapping", make_protocol_definitions(board_config.analog_mappings[3]))
             ),
-        //make_protocol_object("axis0", axes[0]->make_protocol_definitions()),
-        //make_protocol_object("axis1", axes[1]->make_protocol_definitions()),
+        //make_protocol_object("axis0", axes[0].make_protocol_definitions()),
+        //make_protocol_object("axis1", axes[1].make_protocol_definitions()),
         make_protocol_object("can", can1_ctx.make_protocol_definitions()),
         make_protocol_property("test_property", &test_property),
         make_protocol_function("test_function", static_functions, &StaticFunctions::test_function, "delta"),

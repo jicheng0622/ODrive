@@ -21,197 +21,9 @@
 
 #include <inttypes.h>
 
-struct PerChannelConfig_t {
-    Motor::Config_t motor_config;
-    Encoder::Config_t encoder_config;
-    SensorlessEstimator::Config_t sensorless_estimator_config;
-    Controller::Config_t controller_config;
-    TrapezoidalTrajectory::Config_t trap_config;
-    Axis::Config_t axis_config;
-};
 
-
-constexpr size_t AXIS_COUNT = 2; // sizeof(axes) / sizeof(axes[0]);
-extern PerChannelConfig_t axis_configs[AXIS_COUNT];
-
-const float thermistor_poly_coeffs[] =
-    {363.93910201f, -462.15369634f, 307.55129571f, -27.72569531f};
-const size_t thermistor_num_coeffs = sizeof(thermistor_poly_coeffs)/sizeof(thermistor_poly_coeffs[0]);
-
-#if HW_VERSION_MAJOR == 3
-#  if HW_VERSION_MINOR <= 3
-#    define SHUNT_RESISTANCE (675e-6f)
-#  else
-#    define SHUNT_RESISTANCE (500e-6f)
-#  endif
-#else
-#  error "unknown shunt resistance"
-#endif
-
-#if HW_VERSION_VOLTAGE >= 48
-#  define VBUS_S_DIVIDER_RATIO 19.0f
-#  define VBUS_OVERVOLTAGE_LEVEL 52.0f
-#elif HW_VERSION_VOLTAGE == 24
-#  define VBUS_S_DIVIDER_RATIO 11.0f
-#  define VBUS_OVERVOLTAGE_LEVEL 26.0f
-#else
-#  error "unknown board voltage"
-#endif
-
-STM32_ADCChannel_t adc_vbus_sense = adc1_regular.get_channel(&pa6);
-VoltageDivider_t vbus_sense(&adc_vbus_sense, VBUS_S_DIVIDER_RATIO);
-
-STM32_GPIO_t* gpios[] = { &pa0, &pa1, &pa2, &pa3, &pc4, &pb2, &pa15, &pb3 };
-const size_t num_gpios = sizeof(gpios) / sizeof(gpios[0]);
-
-STM32_ADCChannel_t gpio_adcs[] = {
-    adc1_regular.get_channel(gpios[0]),
-    adc1_regular.get_channel(gpios[1]),
-    adc1_regular.get_channel(gpios[2]),
-    adc1_regular.get_channel(gpios[3]),
-    adc1_regular.get_channel(gpios[4]),
-    adc1_regular.get_channel(gpios[5]),
-    adc1_regular.get_channel(gpios[6]),
-    adc1_regular.get_channel(gpios[7]),
-};
-
-DRV8301_t gate_driver_m0(
-    &spi3,
-    &pc13, // chip select
-    &pb12, // enable (shared across both motors)
-    &pd2 // nFault (shared across both motors)
-);
-
-DRV8301_t gate_driver_m1(
-    &spi3,
-    &pc14, // chip select
-    &pb12, // enable (shared across both motors)
-    &pd2 // nFault (shared across both motors)
-);
-
-
-STM32_ADCChannel_t adc_m0_b = adc2_injected.get_channel(&pc0);
-STM32_ADCChannel_t adc_m0_c = adc3_injected.get_channel(&pc1);
-STM32_ADCChannel_t adc_m1_b = adc2_regular.get_channel(&pc3);
-STM32_ADCChannel_t adc_m1_c = adc3_regular.get_channel(&pc2);
-Shunt_t current_sensor_m0_b(&adc_m0_b, &gate_driver_m0, 1.0f / SHUNT_RESISTANCE);
-Shunt_t current_sensor_m0_c(&adc_m0_c, &gate_driver_m0, 1.0f / SHUNT_RESISTANCE);
-DerivedCurrentSensor_t<2> current_sensor_m0_a({&current_sensor_m0_b, &current_sensor_m0_c});
-Shunt_t current_sensor_m1_b(&adc_m1_b, &gate_driver_m1, 1.0f / SHUNT_RESISTANCE);
-Shunt_t current_sensor_m1_c(&adc_m1_c, &gate_driver_m1, 1.0f / SHUNT_RESISTANCE);
-DerivedCurrentSensor_t<2> current_sensor_m1_a({&current_sensor_m1_b, &current_sensor_m1_c});
-
-STM32_ADCChannel_t adc_m0_inv_temp = adc1_regular.get_channel(&pc5);
-STM32_ADCChannel_t adc_m1_inv_temp = adc1_regular.get_channel(&pa4);
-Thermistor_t temp_sensor_m0_inv(&adc_m0_inv_temp, thermistor_poly_coeffs, thermistor_num_coeffs);
-Thermistor_t temp_sensor_m1_inv(&adc_m1_inv_temp, thermistor_poly_coeffs, thermistor_num_coeffs);
-
-STM32_ADCChannel_t* adc_sincos_s = &gpio_adcs[2];
-STM32_ADCChannel_t* adc_sincos_c = &gpio_adcs[3];
-
-const size_t n_axes = AXIS_COUNT;
-
-static bool board_init(Axis axes[AXIS_COUNT]) {
-    new (&axes[0]) Axis(
-            Motor(
-                &tim1,
-                &pb13, &pb14, &pb15, // pwm_{a,b,c}_l_gpio
-                &pa8, &pa9, &pa10, // pwm_{a,b,c}_h_gpio
-                &gate_driver_m0, // gate_driver_a
-                &gate_driver_m0, // gate_driver_b
-                &gate_driver_m0, // gate_driver_c
-                &current_sensor_m0_a, // current_sensor_a
-                &current_sensor_m0_b, // current_sensor_b
-                &current_sensor_m0_c, // current_sensor_c
-                &temp_sensor_m0_inv, // inverter_thermistor
-                axis_configs[0].motor_config
-            ),
-            Encoder(
-                &tim3, // counter
-                &pc9, // index_gpio
-                &pb4, // hallA_gpio
-                &pb5, // hallB_gpio
-                &pc9, // hallC_gpio (same as index pin)
-                adc_sincos_s, // sincos_s (same for both encoders)
-                adc_sincos_c, // sincos_c (same for both encoders)
-                axis_configs[0].encoder_config
-            ),
-            SensorlessEstimator(axis_configs[0].sensorless_estimator_config),
-            Controller(axis_configs[0].controller_config),
-            TrapezoidalTrajectory(axis_configs[0].trap_config),
-            (osPriority)(osPriorityHigh + (osPriority)1), // thread_priority
-            axis_configs[0].axis_config
-        );
-    
-    new (&axes[1]) Axis(
-            Motor(
-                &tim8,
-                &pa7, &pb0, &pb1, // pwm_{a,b,c}_l_gpio
-                &pc6, &pc7, &pc8, // pwm_{a,b,c}_h_gpio
-                &gate_driver_m1, // gate_driver_a
-                &gate_driver_m1, // gate_driver_b
-                &gate_driver_m1, // gate_driver_c
-                &current_sensor_m1_a, // current_sensor_a
-                &current_sensor_m1_b, // current_sensor_b
-                &current_sensor_m1_c, // current_sensor_c
-                &temp_sensor_m1_inv, // inverter_thermistor
-                axis_configs[1].motor_config
-            ),
-            Encoder(
-                &tim4, // counter
-                &pc15, // index_gpio
-                &pb6, // hallA_gpio
-                &pb7, // hallB_gpio
-                &pc15, // hallC_gpio (same as index pin)
-                adc_sincos_s, // sincos_s (same for both encoders)
-                adc_sincos_c, // sincos_c (same for both encoders)
-                axis_configs[1].encoder_config
-            ),
-            SensorlessEstimator(axis_configs[1].sensorless_estimator_config),
-            Controller(axis_configs[1].controller_config),
-            TrapezoidalTrajectory(axis_configs[1].trap_config),
-            osPriorityHigh, // thread_priority
-            axis_configs[1].axis_config
-        );
-
-    return true;
-}
-
-GPIO_t* i2c_a0_gpio = gpios[2];
-GPIO_t* i2c_a1_gpio = gpios[3];
-GPIO_t* i2c_a2_gpio = gpios[4];
-
-
-#if HW_VERSION_MAJOR == 3 && HW_VERSION_MINOR >= 5
-uint32_t default_step_gpio_nums[AXIS_COUNT] = { 1, 7 };
-uint32_t default_dir_gpio_nums[AXIS_COUNT] = { 2, 8 };
-#else
-uint32_t default_step_gpio_nums[AXIS_COUNT] = { 1, 3 };
-uint32_t default_dir_gpio_nums[AXIS_COUNT] = { 2, 4 };
-#endif
-
-
-
-
-
-STM32_USBTxEndpoint_t cdc_tx_endpoint(&usb.hUsbDeviceFS, 0x81);    /* EP1 for data IN */
-STM32_USBRxEndpoint_t cdc_rx_endpoint(&usb.hUsbDeviceFS, 0x01);    /* EP1 for data OUT */
-STM32_USBIntEndpoint_t cdc_cmd_endpoint(&usb.hUsbDeviceFS, 0x82);  /* EP2 for CDC commands */
-STM32_USBTxEndpoint_t odrive_tx_endpoint(&usb.hUsbDeviceFS, 0x83); /* EP3 IN: ODrive device TX endpoint */
-STM32_USBRxEndpoint_t odrive_rx_endpoint(&usb.hUsbDeviceFS, 0x03); /* EP3 OUT: ODrive device RX endpoint */
-
-
-STM32_USART_t* comm_uart = &uart4;
-
-
-
-
-
-
-
-
-
-
+//#define __MAIN_CPP__
+#include "odrive_v3_x.hpp"
 
 
 
@@ -220,11 +32,6 @@ STM32_USART_t* comm_uart = &uart4;
 uint8_t axes_obj_bufs[sizeof(Axis[AXIS_COUNT])];
 Axis* axes = reinterpret_cast<Axis*>(axes_obj_bufs);
 
-
-
-
-//#define __MAIN_CPP__
-//#include "odrive_main.h"
 #include "nvm_config.hpp"
 
 #include "freertos_vars.h"
@@ -412,6 +219,8 @@ int main_task(void) {
 
     /* Setup Communication I/O -----------------------------------------------*/
 
+    system_stats_.boot_progress = 0;
+
     // Set up USB device
     if (!composite_device.register_class(&cdc_class))
         goto fail;
@@ -435,6 +244,8 @@ int main_task(void) {
         &composite_device
     ))
         goto fail;
+
+    system_stats_.boot_progress++;
 
 #if 0
     // M0/M1 PWM input
@@ -486,6 +297,14 @@ int main_task(void) {
     }*/
 #endif
 
+    // TODO: make dynamically reconfigurable
+#if HW_VERSION_MAJOR == 3 && HW_VERSION_MINOR >= 3
+    if (board_config.enable_uart) {
+        if (!uart4.setup(115200, gpios[0], gpios[1], &dma1_stream4, &dma1_stream2)) // Provisionally this can be changed to 921600 for faster transfers, the low power Arduinos will not keep up. 
+            goto fail;
+    }
+#endif
+
     // TODO: DMA is not really used by the DRV8301 driver, remove stream
     if (!spi3.setup(&pc10, &pc11, &pc12, &dma1_stream5, &dma1_stream0)) {
         goto fail;
@@ -498,9 +317,13 @@ int main_task(void) {
     //);
     //tim13.enable_update_interrupt(); // todo: this was probably not used
 
+    system_stats_.boot_progress++;
 
     /* Set up ADC ------------------------------------------------------------*/
 
+    if (!vbus_sense.setup()) {
+        goto fail;
+    }
     if (!vbus_sense.on_update_.set<void>([](void*) {
         vbus_sense.get_voltage(&vbus_voltage);
         //if (axes[0] && !axes[0]->error_ && axes[1] && !axes[1]->error_) {
@@ -509,9 +332,10 @@ int main_task(void) {
         //    oscilloscope[oscilloscope_pos++] = vbus_voltage;
         //}
     }, nullptr)) {
-        return false;
+        goto fail;
     }
 
+    system_stats_.boot_progress++;
 
     // AUX PWM
     tim2.setup(
@@ -519,15 +343,17 @@ int main_task(void) {
         STM32_Timer_t::UP_DOWN
     );
     tim2.setup_pwm(3,
-            &pb10, nullptr,
+            aux_l, nullptr,
             true, true, // active high
             0 // initial value
     ); // AUX L
     tim2.setup_pwm(4,
-            &pb11, nullptr,
+            aux_h, nullptr,
             true, true, // active high
             TIM_APB1_PERIOD_CLOCKS + 1 // initial value
     ); // AUX H
+
+    system_stats_.boot_progress++;
 
     // TODO: find a better place to init the ADC sequence
     if (!adc1_injected.setup(nullptr) ||
@@ -539,6 +365,8 @@ int main_task(void) {
         goto fail;
     }
 
+    system_stats_.boot_progress++;
+
     if (!adc1_injected.set_trigger(&tim1) ||
         !adc2_injected.set_trigger(&tim1) ||
         !adc3_injected.set_trigger(&tim1) ||
@@ -548,6 +376,8 @@ int main_task(void) {
         goto fail;
     }
 
+    system_stats_.boot_progress++;
+
     if (!adc2_injected.append(&adc_m0_b) ||
         !adc3_injected.append(&adc_m0_c) ||
         !adc2_regular.append(&adc_m1_b) ||
@@ -556,11 +386,17 @@ int main_task(void) {
         goto fail;
     }
 
+    system_stats_.boot_progress = 10;
+
     for (size_t i = 0; i < sizeof(gpio_adcs) / sizeof(gpio_adcs[0]); ++i) {
-        if (!adc1_regular.append(&gpio_adcs[i])) {
-            goto fail;
+        if (gpio_adcs[i].is_valid()) {
+            if (!adc1_regular.append(&gpio_adcs[i])) {
+                goto fail;
+            }
         }
     }
+
+    system_stats_.boot_progress++;
 
     // TODO: set up the remaining channels
 
@@ -572,6 +408,8 @@ int main_task(void) {
         !adc3_regular.apply()) {
         goto fail;
     }
+
+    system_stats_.boot_progress++;
     
     // Start ADC for temperature measurements and user measurements
     if (!adc1_regular.enable() ||
@@ -582,14 +420,6 @@ int main_task(void) {
         !adc3_injected.enable()) {
         goto fail;
     }
-
-    // TODO: make dynamically reconfigurable
-#if HW_VERSION_MAJOR == 3 && HW_VERSION_MINOR >= 3
-    if (board_config.enable_uart) {
-        if (!uart4.setup(115200, gpios[0], gpios[1], &dma1_stream4, &dma1_stream2)) // Provisionally this can be changed to 921600 for faster transfers, the low power Arduinos will not keep up. 
-            goto fail;
-    }
-#endif
 
 #if 0
     // Start pwm-in compare modules
@@ -605,10 +435,19 @@ int main_task(void) {
     }
 
     //osDelay(100);
-    // Init communications (this requires the axis objects to be constructed and the config_ members to be non-null)
+    // Init communications
     init_communication();
 
+    if (!adc1_regular.enable(),
+        !adc2_regular.enable(),
+        !adc3_regular.enable(),
+        !adc1_injected.enable(),
+        !adc2_injected.enable(),
+        !adc3_injected.enable()) {
+        goto fail;
+    }
 
+#if 0
     for (size_t i = 0; i < AXIS_COUNT; ++i) {
         axes[i].motor_.start_updates();
     }
@@ -617,6 +456,7 @@ int main_task(void) {
 
     // Start brake resistor PWM
     start_brake_pwm();
+#endif
 
 #if 0
     // This delay serves two purposes:
@@ -652,8 +492,9 @@ int main_task(void) {
     }
     return 0;
     goto fail;
+
 fail:
-    //init_communication();
+    init_communication();
     for (;;) {
         printf("fail\r\n");
         osDelay(1000);

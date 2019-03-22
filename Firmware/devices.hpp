@@ -93,13 +93,13 @@ struct GateDriver_t {
     * @brief Initializes the gate driver hardware.
     * Must be callable multiple times.
     */
-    bool setup();
+    virtual bool setup() = 0;
 
     /*
     * @brief Checks for a fault condition. Returns false if the driver is in a
     * fault state and true if it is in an nominal state.
     */
-    bool check_fault();
+    virtual bool check_fault() = 0;
 };
 
 

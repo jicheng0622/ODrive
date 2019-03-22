@@ -82,7 +82,7 @@ public:
     }
 
     bool start_encoder() {
-        return HAL_TIM_Encoder_Start(&htim, TIM_CHANNEL_ALL);
+        return HAL_TIM_Encoder_Start(&htim, TIM_CHANNEL_ALL) == HAL_OK;
     }
 
     bool get_general_irqn(IRQn_Type* irqn);

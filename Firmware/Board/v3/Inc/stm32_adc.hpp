@@ -12,14 +12,27 @@ class STM32_ADCSequence_t;
 
 class STM32_ADCChannel_t : public ADCChannel_t {
 public:
-    STM32_ADCSequence_t* adc;
-    STM32_GPIO_t* gpio; // may be NULL
-    uint32_t channel_num;
+    STM32_ADCSequence_t* adc_;
+    STM32_GPIO_t* gpio_; // may be NULL (e.g. for internal temp sensor)
+    uint32_t channel_num_;
+    uint32_t seq_pos_ = 0xffffffff; // position in the parent sequence (set in link())
 
     STM32_ADCChannel_t(STM32_ADCSequence_t* adc, STM32_GPIO_t* gpio, uint32_t channel_num) :
-        adc(adc),
-        gpio(gpio),
-        channel_num(channel_num) {}
+        adc_(adc),
+        gpio_(gpio),
+        channel_num_(channel_num) {}
+
+    /**
+     * @brief For internal use by STM32_ADCSequence_t::append()
+     */
+    bool link(STM32_ADCSequence_t* adc, uint32_t seq_pos) {
+        if (adc_ == adc) {
+            seq_pos_ = seq_pos;
+            return true;
+        } else {
+            return false;
+        }
+    }
 
     bool setup() final { return true; } // currently unused
     bool get_voltage(float *value) final;
@@ -27,7 +40,7 @@ public:
     bool enable_updates() final;
 
     bool is_valid() {
-        return adc && channel_num < 19;
+        return adc_ && channel_num_ < 19;
     }
     static STM32_ADCChannel_t invalid_channel() {
         return STM32_ADCChannel_t(nullptr, nullptr, UINT32_MAX);
@@ -171,9 +184,8 @@ public:
 template<unsigned int MAX_SEQ_LENGTH>
 class STM32_ADCSequence_N_t : public STM32_ADCSequence_t {
 public:
-    STM32_ADCChannel_t* channel_sequence[MAX_SEQ_LENGTH];
+    STM32_ADCChannel_t* channel_sequence[MAX_SEQ_LENGTH] = { nullptr };
     uint32_t channel_sequence_length = 0;
-    std::array<STM32_ADCChannel_t*, MAX_SEQ_LENGTH> sequence = { nullptr };
     uint16_t raw_values[MAX_SEQ_LENGTH];
 
     STM32_ADCSequence_N_t(STM32_ADC_t* adc) : STM32_ADCSequence_t(adc) {}
@@ -183,14 +195,16 @@ public:
             return false;
         if (channel_sequence_length >= MAX_SEQ_LENGTH)
             return false;
+        if (!channel->link(this, channel_sequence_length))
+            return false;
         channel_sequence[channel_sequence_length++] = channel;
         return true;
     }
 
-    bool get_raw_value(size_t channel_num, uint16_t *raw_value) final {
-        if (channel_num < channel_sequence_length) {
+    bool get_raw_value(size_t seq_pos, uint16_t *raw_value) final {
+        if (seq_pos < channel_sequence_length) {
             if (raw_value) {
-                *raw_value = raw_values[channel_num];
+                *raw_value = raw_values[seq_pos];
             }
             return true;
         } else {

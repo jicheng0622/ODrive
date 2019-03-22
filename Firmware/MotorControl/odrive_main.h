@@ -64,6 +64,7 @@ typedef struct {
     uint32_t min_stack_space_uart;
     uint32_t min_stack_space_usb_irq;
     uint32_t min_stack_space_startup;
+    uint32_t boot_progress;
 } SystemStats_t;
 extern SystemStats_t system_stats_;
 
