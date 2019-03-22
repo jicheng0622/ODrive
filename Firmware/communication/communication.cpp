@@ -108,7 +108,7 @@ public:
     void NVIC_SystemReset_helper() { NVIC_SystemReset(); }
     void enter_dfu_mode_helper() { enter_dfu_mode(); }
     float get_oscilloscope_val(uint32_t index) { return oscilloscope[index]; }
-    float get_adc_voltage_(uint32_t gpio) { return 0; /* get_adc_voltage(gpios[gpio])*/; }
+    float get_adc_voltage_(uint32_t gpio_num) { return get_adc_voltage(gpio_num); }
     int32_t test_function(int32_t delta) { static int cnt = 0; return cnt += delta; }
 } static_functions;
 

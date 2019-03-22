@@ -47,7 +47,7 @@ public:
     * Returns true if the setup succeeded and false otherwise.
     */
     bool subscribe(bool rising_edge, bool falling_edge,
-        void (*callback)(void*), void* ctx);
+        void (*callback)(void*), void* ctx) final;
 
     /*
     * @brief Removes all callbacks from this pin.
@@ -61,6 +61,7 @@ public:
     */
     bool is_in_list(const STM32_GPIO_t** gpio_list);
     
+    void deinit() final;
 private:
     bool enable_clock();
 };

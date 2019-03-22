@@ -127,8 +127,8 @@ static constexpr const int n_GPIO_samples = sizeof(GPIOs_to_samp) / sizeof(GPIOs
 class Axis;
 class Motor;
 
-extern Axis axes[];
-extern size_t n_axes;
+extern Axis* axes;
+extern const size_t n_axes;
 
 // if you use the oscilloscope feature you can bump up this value
 #define OSCILLOSCOPE_SIZE 128
@@ -160,6 +160,8 @@ inline ENUMTYPE operator ~ (ENUMTYPE a) { return static_cast<ENUMTYPE>(~static_c
 
 #endif // __cplusplus
 
+
+float get_adc_voltage(uint32_t gpio_num);
 
 // general system functions defined in main.cpp
 void save_configuration(void);

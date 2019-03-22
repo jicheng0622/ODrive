@@ -59,6 +59,23 @@ public:
     bool config_encoder_mode(STM32_GPIO_t* gpio_ch1, STM32_GPIO_t* gpio_ch2);
     bool config_input_compare_mode(STM32_GPIO_t* gpio_ch3, STM32_GPIO_t* gpio_ch4);
 
+    /**
+     * @brief Sets the freeze-on-debug setting of the timer.
+     * @param freeze_on_dbg: If true, the timer will freeze when the device is
+     * halted by a debugger. If false, the timer will continue running.
+     */
+    bool set_freeze_on_dbg(bool freeze_on_dbg);
+
+    /**
+     * @brief Enables PWM output on the specified outputs.
+     * 
+     * Call setup_pwm() for the corresponding channels first. Also call start()
+     * first to make sure the timer is not stalled.
+     * On advanced timers the outputs are enabled only once the Master Output
+     * Enable bit is also set.
+     */
+    bool enable_pwm(bool ch1_p, bool ch1_n, bool ch2_p, bool ch2_n, bool ch3_p, bool ch3_n, bool ch4_p, bool ch4_n);
+
     bool start() {
         // TODO: there are separate "start" functions in the HAL for each mode
         return HAL_TIM_Base_Start_IT(&htim) == HAL_OK;
@@ -99,6 +116,10 @@ public:
         HAL_TIM_IRQHandler(&htim); // TODO: not sure if this is still required
     }
 };
+
+void sync_timers(STM32_Timer_t* tim_a, STM32_Timer_t* tim_b,
+                 uint16_t TIM_CLOCKSOURCE_ITRx, uint16_t count_offset,
+                 STM32_Timer_t* tim_refbase);
 
 extern STM32_Timer_t tim1, tim2, tim3, tim4, tim5, tim6, tim7, tim8, tim9, tim10, tim11, tim12, tim13, tim13, tim14;
 

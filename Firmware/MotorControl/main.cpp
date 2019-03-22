@@ -21,6 +21,18 @@
 
 #include <inttypes.h>
 
+struct PerChannelConfig_t {
+    Motor::Config_t motor_config;
+    Encoder::Config_t encoder_config;
+    SensorlessEstimator::Config_t sensorless_estimator_config;
+    Controller::Config_t controller_config;
+    TrapezoidalTrajectory::Config_t trap_config;
+    Axis::Config_t axis_config;
+};
+
+
+constexpr size_t AXIS_COUNT = 2; // sizeof(axes) / sizeof(axes[0]);
+extern PerChannelConfig_t axis_configs[AXIS_COUNT];
 
 const float thermistor_poly_coeffs[] =
     {363.93910201f, -462.15369634f, 307.55129571f, -27.72569531f};
@@ -51,6 +63,17 @@ VoltageDivider_t vbus_sense(&adc_vbus_sense, VBUS_S_DIVIDER_RATIO);
 
 STM32_GPIO_t* gpios[] = { &pa0, &pa1, &pa2, &pa3, &pc4, &pb2, &pa15, &pb3 };
 const size_t num_gpios = sizeof(gpios) / sizeof(gpios[0]);
+
+STM32_ADCChannel_t gpio_adcs[] = {
+    adc1_regular.get_channel(gpios[0]),
+    adc1_regular.get_channel(gpios[1]),
+    adc1_regular.get_channel(gpios[2]),
+    adc1_regular.get_channel(gpios[3]),
+    adc1_regular.get_channel(gpios[4]),
+    adc1_regular.get_channel(gpios[5]),
+    adc1_regular.get_channel(gpios[6]),
+    adc1_regular.get_channel(gpios[7]),
+};
 
 DRV8301_t gate_driver_m0(
     &spi3,
@@ -83,78 +106,92 @@ STM32_ADCChannel_t adc_m1_inv_temp = adc1_regular.get_channel(&pa4);
 Thermistor_t temp_sensor_m0_inv(&adc_m0_inv_temp, thermistor_poly_coeffs, thermistor_num_coeffs);
 Thermistor_t temp_sensor_m1_inv(&adc_m1_inv_temp, thermistor_poly_coeffs, thermistor_num_coeffs);
 
-STM32_ADCChannel_t adc_sincos_s = adc1_regular.get_channel(gpios[2]);
-STM32_ADCChannel_t adc_sincos_c = adc1_regular.get_channel(gpios[3]);
+STM32_ADCChannel_t* adc_sincos_s = &gpio_adcs[2];
+STM32_ADCChannel_t* adc_sincos_c = &gpio_adcs[3];
 
-#if 0
-Axis axes[2] = {
-    Axis(
-        Motor(
-            &tim1,
-            &gate_driver_m0, // gate_driver_a
-            &gate_driver_m0, // gate_driver_b
-            &gate_driver_m0, // gate_driver_c
-            &current_sensor_m0_a, // current_sensor_a
-            &current_sensor_m0_b, // current_sensor_b
-            &current_sensor_m0_c, // current_sensor_c
-            temp_sensor_m0_inv // inverter_thermistor
-        ),
-        Encoder(
-            &tim3, // counter
-            &pc9, // index_gpio
-            &pb4, // hallA_gpio
-            &pb5, // hallB_gpio
-            &pc9, // hallC_gpio (same as index pin)
-            &adc_sincos_s, // sincos_s (same for both encoders)
-            &adc_sincos_c // sincos_c (same for both encoders)
-        ),
-        SensorlessEstimator(),
-        Controller(),
-        TrapezoidalTrajectory(),
-        1, // default_step_gpio_num
-        2 // default_dir_gpio_num
-    ),
-    Axis(
-        Motor(
-            &tim8,
-            &gate_driver_m1, // gate_driver_a
-            &gate_driver_m1, // gate_driver_b
-            &gate_driver_m1, // gate_driver_c
-            &current_sensor_m1_a, // current_sensor_a
-            &current_sensor_m1_b, // current_sensor_b
-            &current_sensor_m1_c, // current_sensor_c
-            temp_sensor_m1_inv // inverter_thermistor
-        ),
-        Encoder(
-            &tim4, // counter
-            &pc15, // index_gpio
-            &pb6, // hallA_gpio
-            &pb7, // hallB_gpio
-            &pc15, // hallC_gpio (same as index pin)
-            &adc_sincos_s, // sincos_s (same for both encoders)
-            &adc_sincos_c // sincos_c (same for both encoders)
-        ),
-        SensorlessEstimator(),
-        Controller(),
-        TrapezoidalTrajectory(),
-#if HW_VERSION_MAJOR == 3 && HW_VERSION_MINOR >= 5
-        7, // default_step_gpio_num
-        8 // default_dir_gpio_num
-#else
-        3, // default_step_gpio_num
-        4 // default_dir_gpio_num
-#endif
-    )
-};
-constexpr size_t AXIS_COUNT = sizeof(axes) / sizeof(axes[0]);
-size_t n_axes = AXIS_COUNT;
+const size_t n_axes = AXIS_COUNT;
+
+static bool board_init(Axis axes[AXIS_COUNT]) {
+    new (&axes[0]) Axis(
+            Motor(
+                &tim1,
+                &pb13, &pb14, &pb15, // pwm_{a,b,c}_l_gpio
+                &pa8, &pa9, &pa10, // pwm_{a,b,c}_h_gpio
+                &gate_driver_m0, // gate_driver_a
+                &gate_driver_m0, // gate_driver_b
+                &gate_driver_m0, // gate_driver_c
+                &current_sensor_m0_a, // current_sensor_a
+                &current_sensor_m0_b, // current_sensor_b
+                &current_sensor_m0_c, // current_sensor_c
+                &temp_sensor_m0_inv, // inverter_thermistor
+                axis_configs[0].motor_config
+            ),
+            Encoder(
+                &tim3, // counter
+                &pc9, // index_gpio
+                &pb4, // hallA_gpio
+                &pb5, // hallB_gpio
+                &pc9, // hallC_gpio (same as index pin)
+                adc_sincos_s, // sincos_s (same for both encoders)
+                adc_sincos_c, // sincos_c (same for both encoders)
+                axis_configs[0].encoder_config
+            ),
+            SensorlessEstimator(axis_configs[0].sensorless_estimator_config),
+            Controller(axis_configs[0].controller_config),
+            TrapezoidalTrajectory(axis_configs[0].trap_config),
+            (osPriority)(osPriorityHigh + (osPriority)1), // thread_priority
+            axis_configs[0].axis_config
+        );
+    
+    new (&axes[1]) Axis(
+            Motor(
+                &tim8,
+                &pa7, &pb0, &pb1, // pwm_{a,b,c}_l_gpio
+                &pc6, &pc7, &pc8, // pwm_{a,b,c}_h_gpio
+                &gate_driver_m1, // gate_driver_a
+                &gate_driver_m1, // gate_driver_b
+                &gate_driver_m1, // gate_driver_c
+                &current_sensor_m1_a, // current_sensor_a
+                &current_sensor_m1_b, // current_sensor_b
+                &current_sensor_m1_c, // current_sensor_c
+                &temp_sensor_m1_inv, // inverter_thermistor
+                axis_configs[1].motor_config
+            ),
+            Encoder(
+                &tim4, // counter
+                &pc15, // index_gpio
+                &pb6, // hallA_gpio
+                &pb7, // hallB_gpio
+                &pc15, // hallC_gpio (same as index pin)
+                adc_sincos_s, // sincos_s (same for both encoders)
+                adc_sincos_c, // sincos_c (same for both encoders)
+                axis_configs[1].encoder_config
+            ),
+            SensorlessEstimator(axis_configs[1].sensorless_estimator_config),
+            Controller(axis_configs[1].controller_config),
+            TrapezoidalTrajectory(axis_configs[1].trap_config),
+            osPriorityHigh, // thread_priority
+            axis_configs[1].axis_config
+        );
+
+    return true;
+}
 
 GPIO_t* i2c_a0_gpio = gpios[2];
 GPIO_t* i2c_a1_gpio = gpios[3];
 GPIO_t* i2c_a2_gpio = gpios[4];
+
+
+#if HW_VERSION_MAJOR == 3 && HW_VERSION_MINOR >= 5
+uint32_t default_step_gpio_nums[AXIS_COUNT] = { 1, 7 };
+uint32_t default_dir_gpio_nums[AXIS_COUNT] = { 2, 8 };
 #else
-#define AXIS_COUNT 2
+uint32_t default_step_gpio_nums[AXIS_COUNT] = { 1, 3 };
+uint32_t default_dir_gpio_nums[AXIS_COUNT] = { 2, 4 };
 #endif
+
+
+
 
 
 STM32_USBTxEndpoint_t cdc_tx_endpoint(&usb.hUsbDeviceFS, 0x81);    /* EP1 for data IN */
@@ -180,17 +217,13 @@ STM32_USART_t* comm_uart = &uart4;
 
 
 
+uint8_t axes_obj_bufs[sizeof(Axis[AXIS_COUNT])];
+Axis* axes = reinterpret_cast<Axis*>(axes_obj_bufs);
 
 
 
 
-
-
-
-
-
-
-#define __MAIN_CPP__
+//#define __MAIN_CPP__
 //#include "odrive_main.h"
 #include "nvm_config.hpp"
 
@@ -200,15 +233,53 @@ STM32_USART_t* comm_uart = &uart4;
 #include <communication/interface_i2c.h>
 
 BoardConfig_t board_config;
-Axis::Config_t axis_configs[AXIS_COUNT];
+PerChannelConfig_t axis_configs[AXIS_COUNT];
 bool user_config_loaded_;
 
 SystemStats_t system_stats_ = { 0 };
+float vbus_voltage = 12.0f;
 
 
 typedef Config<
     BoardConfig_t,
-    Axis::Config_t[AXIS_COUNT]> ConfigFormat;
+    PerChannelConfig_t[AXIS_COUNT]> ConfigFormat;
+
+
+// @brief Returns the ADC voltage associated with the specified pin.
+// GPIO_set_to_analog() must be called first to put the Pin into
+// analog mode.
+// Returns NaN if the pin has no associated ADC1 channel.
+//
+// On ODrive 3.3 and 3.4 the following pins can be used with this function:
+//  GPIO_1, GPIO_2, GPIO_3, GPIO_4 and some pins that are connected to
+//  on-board sensors (M0_TEMP, M1_TEMP, AUX_TEMP)
+//
+// The ADC values are sampled in background at ~30kHz without
+// any CPU involvement.
+//
+// Details: each of the 16 conversion takes (15+26) ADC clock
+// cycles and the ADC, so the update rate of the entire sequence is:
+//  21000kHz / (15+26) / 16 = 32kHz
+// The true frequency is slightly lower because of the injected vbus
+// measurements
+float get_adc_voltage(uint32_t gpio_num) {
+    float result = 0.0f / 0.0f;
+    if (gpio_num < sizeof(gpio_adcs) / sizeof(gpio_adcs[0])) {
+        gpio_adcs[gpio_num].get_voltage(&result);
+    }
+    return result;
+}
+
+// TODO: make a BrakeResistor class
+void start_brake_pwm() {
+    // Start brake resistor PWM in floating output configuration
+    tim2.htim.Instance->CCR3 = 0;
+    tim2.htim.Instance->CCR4 = TIM_APB1_PERIOD_CLOCKS + 1;
+    // Enable Channel3 P and Channel 4 P
+    tim2.enable_pwm(false, false, false, false, true, false, true, false);
+    safety_critical_arm_brake_resistor();
+}
+
 
 void save_configuration(void) {
     if (ConfigFormat::safe_store_config(
@@ -229,9 +300,11 @@ extern "C" int load_configuration(void) {
         //If loading failed, restore defaults
         board_config = BoardConfig_t();
         for (size_t i = 0; i < AXIS_COUNT; ++i) {
-            axis_configs[i] = Axis::Config_t();
+            axis_configs[i] = PerChannelConfig_t();
+
             // Default step/dir pins are different across hardware versions, so we need to explicitly load them
-            Axis::load_default_step_dir_pin_config(&axis_configs[i]);
+            axis_configs[i].axis_config.step_gpio_num = default_step_gpio_nums[i];
+            axis_configs[i].axis_config.dir_gpio_num = default_dir_gpio_nums[i];
         }
     } else {
         user_config_loaded_ = true;
@@ -295,6 +368,9 @@ int main(void) {
     // Load persistent configuration (or defaults)
     load_configuration();
 
+    // Load Axis objects
+    board_init(reinterpret_cast<Axis*>(axes_obj_bufs));
+
     // Init timer for FreeRTOS scheduler
 
     /* Init FreeRTOS resources (in freertos.cpp) */
@@ -333,6 +409,9 @@ int main_task(void) {
     char native_interface_str[64];
     sprintf(native_interface_str, "ODrive %d.%d Native Interface", HW_VERSION_MAJOR, HW_VERSION_MINOR);
 
+
+    /* Setup Communication I/O -----------------------------------------------*/
+
     // Set up USB device
     if (!composite_device.register_class(&cdc_class))
         goto fail;
@@ -358,68 +437,13 @@ int main_task(void) {
         goto fail;
 
 #if 0
-
-    // Load persistent configuration (or defaults)
-    load_configuration();
-
-    // Diagnostics timer
-    tim13.setup(
-        (2 * TIM_1_8_PERIOD_CLOCKS * (TIM_1_8_RCR+1)) * ((float)TIM_APB1_CLOCK_HZ / (float)TIM_1_8_CLOCK_HZ) - 1, // period
-        STM32_Timer_t::UP
-    );
-    //tim13.enable_update_interrupt(); // todo: this was probably not used
-
-    // AUX PWM
-    tim2.setup(
-        TIM_APB1_PERIOD_CLOCKS, // period
-        STM32_Timer_t::UP_DOWN
-    );
-    tim2.setup_pwm(3,
-            &pb10, nullptr,
-            true, true, // active high
-            0 // initial value
-    ); // AUX L
-    tim2.setup_pwm(4,
-            &pb11, nullptr,
-            true, true, // active high
-            TIM_APB1_PERIOD_CLOCKS + 1 // initial value
-    ); // AUX H
-
-    // M0/M1 step input
+    // M0/M1 PWM input
     tim5.setup(
         0xFFFFFFFF, // period
         STM32_Timer_t::UP
     );
     tim5.config_input_compare_mode(&pa2, &pa3);
     tim5.enable_cc_interrupt(pwm_in_cb, nullptr);
-
-    // TODO: DMA is not really used by the DRV8301 driver, remove stream
-    spi3.setup(&pc10, &pc11, &pc12, &dma1_stream5, &dma1_stream0);
-
-
-    // TODO: find a better place to init the ADC sequence
-
-    adc1_injected.set_trigger(&tim1);
-    adc2_injected.set_trigger(&tim1);
-    adc3_injected.set_trigger(&tim1);
-    adc1_regular.set_trigger(&tim8);
-    adc2_regular.set_trigger(&tim8);
-    adc3_regular.set_trigger(&tim8);
-
-    adc2_injected.append(&adc_m0_b);
-    adc3_injected.append(&adc_m0_c);
-    adc2_regular.append(&adc_m1_b);
-    adc3_regular.append(&adc_m1_c);
-    // TODO: set up the remaining channels
-
-    adc1_injected.apply();
-    adc2_injected.apply();
-    adc3_injected.apply();
-    adc1_regular.apply();
-    adc2_regular.apply();
-    adc3_regular.apply();
-
-    vbus_sense.subscribe(&vbus_sense_adc_cb, nullptr);
 
 #if HW_VERSION_MAJOR == 3 && HW_VERSION_MINOR >= 3
     if (board_config.enable_i2c_instead_of_can) {
@@ -460,10 +484,104 @@ int main_task(void) {
         axes[i] = new Axis(hw_configs[i].axis_config, axis_configs[i],
                 *encoder, *sensorless_estimator, *controller, *motor, *trap);
     }*/
+#endif
+
+    // TODO: DMA is not really used by the DRV8301 driver, remove stream
+    if (!spi3.setup(&pc10, &pc11, &pc12, &dma1_stream5, &dma1_stream0)) {
+        goto fail;
+    }
+
+    // Diagnostics timer
+    //tim13.setup(
+    //    (2 * TIM_1_8_PERIOD_CLOCKS * (TIM_1_8_RCR+1)) * ((float)TIM_APB1_CLOCK_HZ / (float)TIM_1_8_CLOCK_HZ) - 1, // period
+    //    STM32_Timer_t::UP
+    //);
+    //tim13.enable_update_interrupt(); // todo: this was probably not used
+
+
+    /* Set up ADC ------------------------------------------------------------*/
+
+    if (!vbus_sense.on_update_.set<void>([](void*) {
+        vbus_sense.get_voltage(&vbus_voltage);
+        //if (axes[0] && !axes[0]->error_ && axes[1] && !axes[1]->error_) {
+        //    if (oscilloscope_pos >= OSCILLOSCOPE_SIZE)
+        //        oscilloscope_pos = 0;
+        //    oscilloscope[oscilloscope_pos++] = vbus_voltage;
+        //}
+    }, nullptr)) {
+        return false;
+    }
+
+
+    // AUX PWM
+    tim2.setup(
+        TIM_APB1_PERIOD_CLOCKS, // period
+        STM32_Timer_t::UP_DOWN
+    );
+    tim2.setup_pwm(3,
+            &pb10, nullptr,
+            true, true, // active high
+            0 // initial value
+    ); // AUX L
+    tim2.setup_pwm(4,
+            &pb11, nullptr,
+            true, true, // active high
+            TIM_APB1_PERIOD_CLOCKS + 1 // initial value
+    ); // AUX H
+
+    // TODO: find a better place to init the ADC sequence
+    if (!adc1_injected.setup(nullptr) ||
+        !adc2_injected.setup(nullptr) ||
+        !adc3_injected.setup(nullptr) ||
+        !adc1_regular.setup(&dma2_stream0) ||
+        !adc2_regular.setup(&dma2_stream2) ||
+        !adc3_regular.setup(&dma2_stream1)) {
+        goto fail;
+    }
+
+    if (!adc1_injected.set_trigger(&tim1) ||
+        !adc2_injected.set_trigger(&tim1) ||
+        !adc3_injected.set_trigger(&tim1) ||
+        !adc1_regular.set_trigger(&tim8) ||
+        !adc2_regular.set_trigger(&tim8) ||
+        !adc3_regular.set_trigger(&tim8)) {
+        goto fail;
+    }
+
+    if (!adc2_injected.append(&adc_m0_b) ||
+        !adc3_injected.append(&adc_m0_c) ||
+        !adc2_regular.append(&adc_m1_b) ||
+        !adc3_regular.append(&adc_m1_c) ||
+        !adc1_regular.append(&adc_vbus_sense)) {
+        goto fail;
+    }
+
+    for (size_t i = 0; i < sizeof(gpio_adcs) / sizeof(gpio_adcs[0]); ++i) {
+        if (!adc1_regular.append(&gpio_adcs[i])) {
+            goto fail;
+        }
+    }
+
+    // TODO: set up the remaining channels
+
+    if (!adc1_injected.apply() ||
+        !adc2_injected.apply() ||
+        !adc3_injected.apply() ||
+        !adc1_regular.apply() ||
+        !adc2_regular.apply() ||
+        !adc3_regular.apply()) {
+        goto fail;
+    }
     
     // Start ADC for temperature measurements and user measurements
-    start_general_purpose_adc();
-#endif
+    if (!adc1_regular.enable() ||
+        !adc2_regular.enable() ||
+        !adc3_regular.enable() ||
+        !adc1_injected.enable() ||
+        !adc2_injected.enable() ||
+        !adc3_injected.enable()) {
+        goto fail;
+    }
 
     // TODO: make dynamically reconfigurable
 #if HW_VERSION_MAJOR == 3 && HW_VERSION_MINOR >= 3
@@ -473,24 +591,34 @@ int main_task(void) {
     }
 #endif
 
-    //osDelay(100);
-    // Init communications (this requires the axis objects to be constructed)
-    init_communication();
-
 #if 0
     // Start pwm-in compare modules
     // must happen after communication is initialized
     pwm_in_init();
+#endif
 
     // Setup hardware for all components
     for (size_t i = 0; i < AXIS_COUNT; ++i) {
-        axes[i].setup(&axis_configs[i]); // TODO: check return value
+        if (!axes[i].setup()) {
+            goto fail;
+        }
     }
 
-    // Start PWM and enable adc interrupts/callbacks
-    start_adc_pwm();
-    motor.start_updates()
+    //osDelay(100);
+    // Init communications (this requires the axis objects to be constructed and the config_ members to be non-null)
+    init_communication();
 
+
+    for (size_t i = 0; i < AXIS_COUNT; ++i) {
+        axes[i].motor_.start_updates();
+    }
+    // Synchronize PWM of both motors up to a 90° PWM phase shift
+    sync_timers(axes[0].motor_.timer_, axes[1].motor_.timer_, TIM_CLOCKSOURCE_ITR0, TIM_1_8_PERIOD_CLOCKS / 2 - 1 * 128, nullptr);
+
+    // Start brake resistor PWM
+    start_brake_pwm();
+
+#if 0
     // This delay serves two purposes:
     //  - Let the current sense calibration converge (the current
     //    sense interrupts are firing in background by now)
@@ -511,7 +639,6 @@ int main_task(void) {
 #endif
 
 
-
     system_stats_.fully_booted = true;
     for (;;) {
         //uart4.start_tx((const uint8_t*)"a\r\n", 3, nullptr, nullptr);
@@ -526,6 +653,7 @@ int main_task(void) {
     return 0;
     goto fail;
 fail:
+    //init_communication();
     for (;;) {
         printf("fail\r\n");
         osDelay(1000);

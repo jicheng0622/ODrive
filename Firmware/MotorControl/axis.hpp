@@ -67,12 +67,6 @@ public:
         uint16_t dir_gpio_num = 0;
 
         LockinConfig_t lockin;
-
-        Motor::Config_t motor_config;
-        Encoder::Config_t encoder_config;
-        SensorlessEstimator::Config_t sensorless_estimator_config;
-        Controller::Config_t controller_config;
-        TrapezoidalTrajectory::Config_t trap_config;
     };
 
     enum thread_signals {
@@ -91,9 +85,10 @@ public:
         SensorlessEstimator sensorless_estimator,
         Controller controller,
         TrapezoidalTrajectory trap,
-        uint32_t default_step_gpio_num, uint32_t default_dir_gpio_num);
+        osPriority thread_priority,
+        Config_t& config);
 
-    bool setup(Config_t* config);
+    bool setup();
     void start_thread();
     void signal_current_meas();
     bool wait_for_current_meas();
@@ -102,7 +97,6 @@ public:
     void set_step_dir_active(bool enable);
     void decode_step_dir_pins();
     void update_watchdog_settings();
-    static void load_default_step_dir_pin_config(Config_t* config);
 
     bool check_DRV_fault();
     bool check_PSU_brownout();
@@ -186,19 +180,18 @@ public:
 
     void run_state_machine_loop();
 
-    Config_t* config_; // assigned in setup()
 
     Motor motor_;
     Encoder encoder_;
     SensorlessEstimator sensorless_estimator_;
     Controller controller_;
     TrapezoidalTrajectory trap_;
-
-    uint32_t default_step_gpio_num_;
-    uint32_t default_dir_gpio_num_;
-
+    
+    osPriority thread_priority_;
     osThreadId thread_id_;
     volatile bool thread_id_valid_ = false;
+
+    Config_t& config_;
 
     // variables exposed on protocol
     Error_t error_ = ERROR_NONE;
@@ -228,29 +221,29 @@ public:
             make_protocol_ro_property("loop_counter", &loop_counter_),
             make_protocol_ro_property("lockin_state", &lockin_state_),
             make_protocol_object("config",
-                make_protocol_property("startup_motor_calibration", &config_->startup_motor_calibration),
-                make_protocol_property("startup_encoder_index_search", &config_->startup_encoder_index_search),
-                make_protocol_property("startup_encoder_offset_calibration", &config_->startup_encoder_offset_calibration),
-                make_protocol_property("startup_closed_loop_control", &config_->startup_closed_loop_control),
-                make_protocol_property("startup_sensorless_control", &config_->startup_sensorless_control),
-                make_protocol_property("enable_step_dir", &config_->enable_step_dir),
-                make_protocol_property("counts_per_step", &config_->counts_per_step),
-                make_protocol_property("watchdog_timeout", &config_->watchdog_timeout,
+                make_protocol_property("startup_motor_calibration", &config_.startup_motor_calibration),
+                make_protocol_property("startup_encoder_index_search", &config_.startup_encoder_index_search),
+                make_protocol_property("startup_encoder_offset_calibration", &config_.startup_encoder_offset_calibration),
+                make_protocol_property("startup_closed_loop_control", &config_.startup_closed_loop_control),
+                make_protocol_property("startup_sensorless_control", &config_.startup_sensorless_control),
+                make_protocol_property("enable_step_dir", &config_.enable_step_dir),
+                make_protocol_property("counts_per_step", &config_.counts_per_step),
+                make_protocol_property("watchdog_timeout", &config_.watchdog_timeout,
                     [](void* ctx) { static_cast<Axis*>(ctx)->update_watchdog_settings(); }, this),
-                make_protocol_property("step_gpio_pin", &config_->step_gpio_num, // TODO: rename
+                make_protocol_property("step_gpio_pin", &config_.step_gpio_num, // TODO: rename
                     [](void* ctx) { static_cast<Axis*>(ctx)->decode_step_dir_pins(); }, this),
-                make_protocol_property("dir_gpio_pin", &config_->dir_gpio_num, // TODO: rename
+                make_protocol_property("dir_gpio_pin", &config_.dir_gpio_num, // TODO: rename
                     [](void* ctx) { static_cast<Axis*>(ctx)->decode_step_dir_pins(); }, this),
                 make_protocol_object("lockin",
-                    make_protocol_property("current", &config_->lockin.current),
-                    make_protocol_property("ramp_time", &config_->lockin.ramp_time),
-                    make_protocol_property("ramp_distance", &config_->lockin.ramp_distance),
-                    make_protocol_property("accel", &config_->lockin.accel),
-                    make_protocol_property("vel", &config_->lockin.vel),
-                    make_protocol_property("finish_distance", &config_->lockin.finish_distance),
-                    make_protocol_property("finish_on_vel", &config_->lockin.finish_on_vel),
-                    make_protocol_property("finish_on_distance", &config_->lockin.finish_on_distance),
-                    make_protocol_property("finish_on_enc_idx", &config_->lockin.finish_on_enc_idx)
+                    make_protocol_property("current", &config_.lockin.current),
+                    make_protocol_property("ramp_time", &config_.lockin.ramp_time),
+                    make_protocol_property("ramp_distance", &config_.lockin.ramp_distance),
+                    make_protocol_property("accel", &config_.lockin.accel),
+                    make_protocol_property("vel", &config_.lockin.vel),
+                    make_protocol_property("finish_distance", &config_.lockin.finish_distance),
+                    make_protocol_property("finish_on_vel", &config_.lockin.finish_on_vel),
+                    make_protocol_property("finish_on_distance", &config_.lockin.finish_on_distance),
+                    make_protocol_property("finish_on_enc_idx", &config_.lockin.finish_on_enc_idx)
                 )
             ),
             make_protocol_object("motor", motor_.make_protocol_definitions()),

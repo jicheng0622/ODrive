@@ -3,6 +3,7 @@
 
 #include <stm32_gpio.hpp>
 #include <stm32_tim.hpp>
+#include <stm32_dma.hpp>
 #include <devices.hpp>
 
 #include <array>
@@ -14,9 +15,6 @@ public:
     STM32_ADCSequence_t* adc;
     STM32_GPIO_t* gpio; // may be NULL
     uint32_t channel_num;
-
-    void (*callback_)(void*) = nullptr;
-    void* ctx_ = nullptr;
 
     STM32_ADCChannel_t(STM32_ADCSequence_t* adc, STM32_GPIO_t* gpio, uint32_t channel_num) :
         adc(adc),
@@ -44,27 +42,84 @@ public:
 class STM32_ADC_t {
 public:
     ADC_HandleTypeDef hadc;
-    DMA_HandleTypeDef hdma_rx;
-    DMA_HandleTypeDef hdma_tx;
+    DMA_HandleTypeDef dma;
 
     std::array<STM32_GPIO_t*, 16> gpios;
+    const STM32_DMAChannel_t* dmas;
 
-    STM32_ADC_t(ADC_TypeDef* instance, std::array<STM32_GPIO_t*, 16> gpios) :
+    STM32_ADC_t(ADC_TypeDef* instance, std::array<STM32_GPIO_t*, 16> gpios,
+                const STM32_DMAChannel_t* dmas) :
             hadc{ .Instance = instance },
-            gpios(gpios) { }
+            gpios(gpios),
+            dmas(dmas) { }
 
     bool setup();
+
+    bool is_setup_ = false;
 };
 
+/**
+ * @brief ADC Channel Sequence base class
+ * 
+ * Currently the assumption is that you init this object only once at startup
+ * in the following order:
+ * 
+ *  1. setup()
+ *  2. set_trigger() (unless software trigger is used)
+ *  3. append() (multiple times)
+ *  4. apply()
+ *  5. enable()
+ * 
+ */
 class STM32_ADCSequence_t {
 public:
     STM32_ADC_t* adc;
 
     STM32_ADCSequence_t(STM32_ADC_t* adc) : adc(adc) {}
 
+    /**
+     * @brief Sets up the underlying ADC and associates the given DMA stream
+     * with it.
+     * 
+     * If a DMA is provided (non-NULL), the DMA is used to read in the sequence
+     * after every ADC trigger. This is only supported for regular sequences.
+     * If no DMA is provided (NULL), interrupts are used to read in the data.
+     * This is only supported for injected sequences (though possible to enable
+     * for regular sequences).
+     * In both cases, the on_update_ event of every channel is invoked in order
+     * every time the complete sequence was read in.
+     */
+    virtual bool setup(STM32_DMAStream_t* dma) = 0;
+
+    /**
+     * @brief Configures the trigger output of the specified timer as trigger
+     * for starting this conversion sequence.
+     * 
+     * Take care of the init order described on the STM32_ADCSequence_t class.
+     * Note that not all ADC Sequence + Timer combinations are allowed.
+     * 
+     * Returns true on success or false otherwise (e.g. if the Timer is invalid
+     * for this sequence).
+     */
     virtual bool set_trigger(STM32_Timer_t* timer) = 0;
+
+    /**
+     * @brief Appends the given channel to this sequence.
+     * 
+     * Take care of the init order described on the STM32_ADCSequence_t class.
+     * 
+     * Returns true on success or false otherwise (e.g. if the sequence is full).
+     */
     virtual bool append(STM32_ADCChannel_t* channel) = 0;
+
+    /**
+     * @brief Applies the settings that were configured using set_trigger() and
+     * append().
+     * 
+     * Returns true on success or false otherwise.
+     */
     virtual bool apply() = 0;
+    virtual bool enable() = 0;
     virtual bool get_raw_value(size_t channel_num, uint16_t *raw_value) = 0;
 
     STM32_ADCChannel_t get_channel(STM32_GPIO_t* gpio) {
@@ -111,9 +166,6 @@ public:
         }
         return STM32_ADCChannel_t::invalid_channel();
     }
-
-    bool enable();
-    virtual void handle_irq() = 0;
 };
 
 template<unsigned int MAX_SEQ_LENGTH>
@@ -150,14 +202,18 @@ public:
 
 class STM32_ADCRegular_t : public STM32_ADCSequence_N_t<16> {
 public:
+    STM32_DMAStream_t* dma_ = nullptr;
     uint32_t trigger_source = ADC_SOFTWARE_START;
     uint32_t next_pos = 0; // TODO: ensure that this is properly synced to the ADC
 
     STM32_ADCRegular_t(STM32_ADC_t* adc) : STM32_ADCSequence_N_t(adc) {}
 
+    bool setup(STM32_DMAStream_t* dma) final;
     bool set_trigger(STM32_Timer_t* timer) final;
     bool apply() final;
-    void handle_irq() final;
+    bool enable() final;
+    void handle_irq();
+    void handle_dma_complete();
 };
 
 class STM32_ADCInjected_t : public STM32_ADCSequence_N_t<4> {
@@ -166,12 +222,15 @@ public:
 
     STM32_ADCInjected_t(STM32_ADC_t* adc) : STM32_ADCSequence_N_t(adc) {}
 
+    bool setup(STM32_DMAStream_t* dma) final;
     bool set_trigger(STM32_Timer_t* timer) final;
     bool apply() final;
-    void handle_irq() final;
+    bool enable() final;
+    void handle_irq();
 };
 
 
+extern STM32_ADC_t adc1, adc2, adc3;
 extern STM32_ADCRegular_t adc1_regular, adc2_regular, adc3_regular;
 extern STM32_ADCInjected_t adc1_injected, adc2_injected, adc3_injected;
 

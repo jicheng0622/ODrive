@@ -33,6 +33,13 @@ public:
 
     /* @brief Reads the current state of the GPIO */
     virtual bool read() = 0;
+
+    /* @brief Subscribes to a rising or falling edge on the pin*/
+    virtual bool subscribe(bool rising_edge, bool falling_edge,
+        void (*callback)(void*), void* ctx) = 0;
+
+    /** @brief Puts the GPIO into high impedance and removes all subscribers */
+    virtual void deinit() = 0;
 };
 
 #endif // __GPIO_HPP

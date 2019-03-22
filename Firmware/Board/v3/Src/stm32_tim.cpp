@@ -103,6 +103,135 @@ bool STM32_Timer_t::setup_pwm(uint32_t channel_num,
     return true;
 }
 
+bool STM32_Timer_t::set_freeze_on_dbg(bool freeze_on_dbg) {
+    if (freeze_on_dbg) {
+        if (htim.Instance == TIM1) {
+            __HAL_DBGMCU_FREEZE_TIM1();
+        } else if (htim.Instance == TIM2) {
+            __HAL_DBGMCU_FREEZE_TIM2();
+        } else if (htim.Instance == TIM3) {
+            __HAL_DBGMCU_FREEZE_TIM3();
+        } else if (htim.Instance == TIM4) {
+            __HAL_DBGMCU_FREEZE_TIM4();
+        } else if (htim.Instance == TIM5) {
+            __HAL_DBGMCU_FREEZE_TIM5();
+        } else if (htim.Instance == TIM6) {
+            __HAL_DBGMCU_FREEZE_TIM6();
+        } else if (htim.Instance == TIM7) {
+            __HAL_DBGMCU_FREEZE_TIM7();
+        } else if (htim.Instance == TIM8) {
+            __HAL_DBGMCU_FREEZE_TIM8();
+        } else if (htim.Instance == TIM9) {
+            __HAL_DBGMCU_FREEZE_TIM9();
+        } else if (htim.Instance == TIM10) {
+            __HAL_DBGMCU_FREEZE_TIM10();
+        } else if (htim.Instance == TIM11) {
+            __HAL_DBGMCU_FREEZE_TIM11();
+        } else if (htim.Instance == TIM12) {
+            __HAL_DBGMCU_FREEZE_TIM12();
+        } else if (htim.Instance == TIM13) {
+            __HAL_DBGMCU_FREEZE_TIM13();
+        } else if (htim.Instance == TIM14) {
+            __HAL_DBGMCU_FREEZE_TIM14();
+        } else {
+            return false;
+        }
+    } else {
+        if (htim.Instance == TIM1) {
+            __HAL_DBGMCU_UNFREEZE_TIM1();
+        } else if (htim.Instance == TIM2) {
+            __HAL_DBGMCU_UNFREEZE_TIM2();
+        } else if (htim.Instance == TIM3) {
+            __HAL_DBGMCU_UNFREEZE_TIM3();
+        } else if (htim.Instance == TIM4) {
+            __HAL_DBGMCU_UNFREEZE_TIM4();
+        } else if (htim.Instance == TIM5) {
+            __HAL_DBGMCU_UNFREEZE_TIM5();
+        } else if (htim.Instance == TIM6) {
+            __HAL_DBGMCU_UNFREEZE_TIM6();
+        } else if (htim.Instance == TIM7) {
+            __HAL_DBGMCU_UNFREEZE_TIM7();
+        } else if (htim.Instance == TIM8) {
+            __HAL_DBGMCU_UNFREEZE_TIM8();
+        } else if (htim.Instance == TIM9) {
+            __HAL_DBGMCU_UNFREEZE_TIM9();
+        } else if (htim.Instance == TIM10) {
+            __HAL_DBGMCU_UNFREEZE_TIM10();
+        } else if (htim.Instance == TIM11) {
+            __HAL_DBGMCU_UNFREEZE_TIM11();
+        } else if (htim.Instance == TIM12) {
+            __HAL_DBGMCU_UNFREEZE_TIM12();
+        } else if (htim.Instance == TIM13) {
+            __HAL_DBGMCU_UNFREEZE_TIM13();
+        } else if (htim.Instance == TIM14) {
+            __HAL_DBGMCU_UNFREEZE_TIM14();
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool enable_ccx(TIM_TypeDef* instance, uint32_t channel_id) {
+    if (IS_TIM_CCX_INSTANCE(instance, channel_id)) {
+        /* Reset the CCxE Bit */
+        instance->CCER &= ~(TIM_CCER_CC1E << channel_id);
+        /* Set or reset the CCxE Bit */ 
+        instance->CCER |= (uint32_t)(TIM_CCx_ENABLE << channel_id);
+        return true;
+    } else {
+        return false;
+    }
+}
+
+static bool enable_ccxn(TIM_TypeDef* instance, uint32_t channel_id) {
+    if (IS_TIM_CCXN_INSTANCE(instance, channel_id) && IS_TIM_COMPLEMENTARY_CHANNELS(channel_id)) {
+        /* Reset the CCxNE Bit */
+        instance->CCER &= ~~(uint32_t)(TIM_CCER_CC1NE << channel_id);
+        /* Set or reset the CCxNE Bit */ 
+        instance->CCER |= (uint32_t)(TIM_CCxN_ENABLE << channel_id);
+        return true;
+    } else {
+        return false;
+    }
+}
+
+bool STM32_Timer_t::enable_pwm(bool ch1_p, bool ch1_n, bool ch2_p, bool ch2_n, bool ch3_p, bool ch3_n, bool ch4_p, bool ch4_n) {
+    if (IS_TIM_ADVANCED_INSTANCE(htim.Instance)) {
+        htim.Instance->BDTR &= ~TIM_BDTR_AOE; // ensure that MOE isn't re-enabled at the next update event
+        __HAL_TIM_MOE_DISABLE_UNCONDITIONALLY(&htim);
+    }
+
+    if (ch1_p && !enable_ccx(htim.Instance, TIM_CHANNEL_1)) {
+        return false;
+    }
+    if (ch1_n && !enable_ccxn(htim.Instance, TIM_CHANNEL_1)) {
+        return false;
+    }
+    if (ch2_p && !enable_ccx(htim.Instance, TIM_CHANNEL_2)) {
+        return false;
+    }
+    if (ch2_n && !enable_ccxn(htim.Instance, TIM_CHANNEL_2)) {
+        return false;
+    }
+    if (ch3_p && !enable_ccx(htim.Instance, TIM_CHANNEL_3)) {
+        return false;
+    }
+    if (ch3_n && !enable_ccxn(htim.Instance, TIM_CHANNEL_3)) {
+        return false;
+    }
+    if (ch4_p && !enable_ccx(htim.Instance, TIM_CHANNEL_4)) {
+        return false;
+    }
+    if (ch4_n && !enable_ccxn(htim.Instance, TIM_CHANNEL_4)) {
+        return false;
+    }
+
+    __HAL_TIM_ENABLE(&htim);
+
+    return true;
+}
+
 bool STM32_Timer_t::set_dead_time(uint32_t dead_time) {
     TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig;
     sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_ENABLE;
@@ -230,6 +359,8 @@ bool STM32_Timer_t::enable_update_interrupt() {
     HAL_NVIC_SetPriority(irqn, 0, 0);
     HAL_NVIC_EnableIRQ(irqn);
 
+    __HAL_TIM_ENABLE_IT(&htim, TIM_IT_UPDATE);
+
     return true;
 }
 
@@ -333,6 +464,58 @@ void STM32_Timer_t::handle_break_irq() {
             on_break_.invoke();
         }
     }
+}
+
+void sync_timers(STM32_Timer_t* tim_a, STM32_Timer_t* tim_b,
+                 uint16_t TIM_CLOCKSOURCE_ITRx, uint16_t count_offset,
+                 STM32_Timer_t* tim_refbase) {
+    // Store intial timer configs
+    uint16_t MOE_store_a = tim_a->htim.Instance->BDTR & (TIM_BDTR_MOE);
+    uint16_t MOE_store_b = tim_b->htim.Instance->BDTR & (TIM_BDTR_MOE);
+    uint16_t CR2_store = tim_a->htim.Instance->CR2;
+    uint16_t SMCR_store = tim_b->htim.Instance->SMCR;
+    // Turn off output
+    tim_a->htim.Instance->BDTR &= ~(TIM_BDTR_MOE);
+    tim_b->htim.Instance->BDTR &= ~(TIM_BDTR_MOE);
+    // Disable both timer counters
+    tim_a->htim.Instance->CR1 &= ~TIM_CR1_CEN;
+    tim_b->htim.Instance->CR1 &= ~TIM_CR1_CEN;
+    // Set first timer to send TRGO on counter enable
+    tim_a->htim.Instance->CR2 &= ~TIM_CR2_MMS;
+    tim_a->htim.Instance->CR2 |= TIM_TRGO_ENABLE;
+    // Set Trigger Source of second timer to the TRGO of the first timer
+    tim_b->htim.Instance->SMCR &= ~TIM_SMCR_TS;
+    tim_b->htim.Instance->SMCR |= TIM_CLOCKSOURCE_ITRx;
+    // Set 2nd timer to start on trigger
+    tim_b->htim.Instance->SMCR &= ~TIM_SMCR_SMS;
+    tim_b->htim.Instance->SMCR |= TIM_SLAVEMODE_TRIGGER;
+    // Dir bit is read only in center aligned mode, so we clear the mode for now
+    uint16_t CMS_store_a = tim_a->htim.Instance->CR1 & TIM_CR1_CMS;
+    uint16_t CMS_store_b = tim_b->htim.Instance->CR1 & TIM_CR1_CMS;
+    tim_a->htim.Instance->CR1 &= ~TIM_CR1_CMS;
+    tim_b->htim.Instance->CR1 &= ~TIM_CR1_CMS;
+    // Set both timers to up-counting state
+    tim_a->htim.Instance->CR1 &= ~TIM_CR1_DIR;
+    tim_b->htim.Instance->CR1 &= ~TIM_CR1_DIR;
+    // Restore center aligned mode
+    tim_a->htim.Instance->CR1 |= CMS_store_a;
+    tim_b->htim.Instance->CR1 |= CMS_store_b;
+    // set counter offset
+    tim_a->htim.Instance->CNT = count_offset;
+    tim_b->htim.Instance->CNT = 0;
+    // Set and start reference timebase timer (if used)
+    if (tim_refbase) {
+        tim_refbase->htim.Instance->CNT = count_offset;
+        tim_refbase->htim.Instance->CR1 |= (TIM_CR1_CEN); // start
+    }
+    // Start Timer a
+    tim_a->htim.Instance->CR1 |= (TIM_CR1_CEN);
+    // Restore timer configs
+    tim_a->htim.Instance->CR2 = CR2_store;
+    tim_b->htim.Instance->SMCR = SMCR_store;
+    // restore output
+    tim_a->htim.Instance->BDTR |= MOE_store_a;
+    tim_b->htim.Instance->BDTR |= MOE_store_b;
 }
 
 

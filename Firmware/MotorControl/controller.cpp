@@ -22,7 +22,7 @@ void Controller::set_pos_setpoint(float pos_setpoint, float vel_feed_forward, fl
     pos_setpoint_ = pos_setpoint;
     vel_setpoint_ = vel_feed_forward;
     current_setpoint_ = current_feed_forward;
-    config_->control_mode = CTRL_MODE_POSITION_CONTROL;
+    config_.control_mode = CTRL_MODE_POSITION_CONTROL;
 #ifdef DEBUG_PRINT
     printf("POSITION_CONTROL %6.0f %3.3f %3.3f\n", pos_setpoint, vel_setpoint_, current_setpoint_);
 #endif
@@ -31,7 +31,7 @@ void Controller::set_pos_setpoint(float pos_setpoint, float vel_feed_forward, fl
 void Controller::set_vel_setpoint(float vel_setpoint, float current_feed_forward) {
     vel_setpoint_ = vel_setpoint;
     current_setpoint_ = current_feed_forward;
-    config_->control_mode = CTRL_MODE_VELOCITY_CONTROL;
+    config_.control_mode = CTRL_MODE_VELOCITY_CONTROL;
 #ifdef DEBUG_PRINT
     printf("VELOCITY_CONTROL %3.3f %3.3f\n", vel_setpoint_, motor->current_setpoint_);
 #endif
@@ -39,7 +39,7 @@ void Controller::set_vel_setpoint(float vel_setpoint, float current_feed_forward
 
 void Controller::set_current_setpoint(float current_setpoint) {
     current_setpoint_ = current_setpoint;
-    config_->control_mode = CTRL_MODE_CURRENT_CONTROL;
+    config_.control_mode = CTRL_MODE_CURRENT_CONTROL;
 #ifdef DEBUG_PRINT
     printf("CURRENT_CONTROL %3.3f\n", current_setpoint_);
 #endif
@@ -47,11 +47,11 @@ void Controller::set_current_setpoint(float current_setpoint) {
 
 void Controller::move_to_pos(float goal_point) {
     axis_->trap_.planTrapezoidal(goal_point, pos_setpoint_, vel_setpoint_,
-                                 axis_->trap_.config_->vel_limit,
-                                 axis_->trap_.config_->accel_limit,
-                                 axis_->trap_.config_->decel_limit);
+                                 axis_->trap_.config_.vel_limit,
+                                 axis_->trap_.config_.accel_limit,
+                                 axis_->trap_.config_.decel_limit);
     traj_start_loop_count_ = axis_->loop_counter_;
-    config_->control_mode = CTRL_MODE_TRAJECTORY_CONTROL;
+    config_.control_mode = CTRL_MODE_TRAJECTORY_CONTROL;
     goal_point_ = goal_point;
 }
 
@@ -84,7 +84,7 @@ bool Controller::anticogging_calibration(float pos_estimate, float vel_estimate)
             fabsf(vel_estimate) < anticogging_.calib_vel_threshold) {
             anticogging_.cogging_map[anticogging_.index++] = vel_integrator_current_;
         }
-        if (anticogging_.index < axis_->encoder_.config_->cpr) { // TODO: remove the dependency on encoder CPR
+        if (anticogging_.index < axis_->encoder_.config_.cpr) { // TODO: remove the dependency on encoder CPR
             set_pos_setpoint(anticogging_.index, 0.0f, 0.0f);
             return false;
         } else {
@@ -104,13 +104,13 @@ bool Controller::update(float pos_estimate, float vel_estimate, float* current_s
     float anticogging_pos = pos_estimate;
 
     // Trajectory control
-    if (config_->control_mode == CTRL_MODE_TRAJECTORY_CONTROL) {
+    if (config_.control_mode == CTRL_MODE_TRAJECTORY_CONTROL) {
         // Note: uint32_t loop count delta is OK across overflow
         // Beware of negative deltas, as they will not be well behaved due to uint!
         float t = (axis_->loop_counter_ - traj_start_loop_count_) * current_meas_period;
         if (t > axis_->trap_.Tf_) {
             // Drop into position control mode when done to avoid problems on loop counter delta overflow
-            config_->control_mode = CTRL_MODE_POSITION_CONTROL;
+            config_.control_mode = CTRL_MODE_POSITION_CONTROL;
             // pos_setpoint already set by trajectory
             vel_setpoint_ = 0.0f;
             current_setpoint_ = 0.0f;
@@ -118,14 +118,14 @@ bool Controller::update(float pos_estimate, float vel_estimate, float* current_s
             TrapezoidalTrajectory::Step_t traj_step = axis_->trap_.eval(t);
             pos_setpoint_ = traj_step.Y;
             vel_setpoint_ = traj_step.Yd;
-            current_setpoint_ = traj_step.Ydd * axis_->trap_.config_->A_per_css;
+            current_setpoint_ = traj_step.Ydd * axis_->trap_.config_.A_per_css;
         }
         anticogging_pos = pos_setpoint_; // FF the position setpoint instead of the pos_estimate
     }
 
     // Ramp rate limited velocity setpoint
-    if (config_->control_mode == CTRL_MODE_VELOCITY_CONTROL && vel_ramp_enable_) {
-        float max_step_size = current_meas_period * config_->vel_ramp_rate;
+    if (config_.control_mode == CTRL_MODE_VELOCITY_CONTROL && vel_ramp_enable_) {
+        float max_step_size = current_meas_period * config_.vel_ramp_rate;
         float full_step = vel_ramp_target_ - vel_setpoint_;
         float step;
         if (fabsf(full_step) > max_step_size) {
@@ -139,12 +139,12 @@ bool Controller::update(float pos_estimate, float vel_estimate, float* current_s
     // Position control
     // TODO Decide if we want to use encoder or pll position here
     float vel_des = vel_setpoint_;
-    if (config_->control_mode >= CTRL_MODE_POSITION_CONTROL) {
+    if (config_.control_mode >= CTRL_MODE_POSITION_CONTROL) {
         float pos_err;
-        if (config_->setpoints_in_cpr) {
+        if (config_.setpoints_in_cpr) {
             // TODO this breaks the semantics that estimates come in on the arguments.
             // It's probably better to call a get_estimate that will arbitrate (enc vs sensorless) instead.
-            float cpr = (float)(axis_->encoder_.config_->cpr);
+            float cpr = (float)(axis_->encoder_.config_.cpr);
             // Keep pos setpoint from drifting
             pos_setpoint_ = fmodf_pos(pos_setpoint_, cpr);
             // Circular delta
@@ -153,17 +153,17 @@ bool Controller::update(float pos_estimate, float vel_estimate, float* current_s
         } else {
             pos_err = pos_setpoint_ - pos_estimate;
         }
-        vel_des += config_->pos_gain * pos_err;
+        vel_des += config_.pos_gain * pos_err;
     }
 
     // Velocity limiting
-    float vel_lim = config_->vel_limit;
+    float vel_lim = config_.vel_limit;
     if (vel_des > vel_lim) vel_des = vel_lim;
     if (vel_des < -vel_lim) vel_des = -vel_lim;
 
     // Check for overspeed fault (done in this module (controller) for cohesion with vel_lim)
-    if (config_->vel_limit_tolerance > 0.0f) { // 0.0f to disable
-        if (fabsf(vel_estimate) > config_->vel_limit_tolerance * vel_lim) {
+    if (config_.vel_limit_tolerance > 0.0f) { // 0.0f to disable
+        if (fabsf(vel_estimate) > config_.vel_limit_tolerance * vel_lim) {
             set_error(ERROR_OVERSPEED);
             return false;
         }
@@ -176,12 +176,12 @@ bool Controller::update(float pos_estimate, float vel_estimate, float* current_s
     // We get the current position and apply a current feed-forward
     // ensuring that we handle negative encoder positions properly (-1 == motor->encoder.encoder_cpr - 1)
     if (anticogging_.use_anticogging) {
-        Iq += anticogging_.cogging_map[mod(static_cast<int>(anticogging_pos), axis_->encoder_.config_->cpr)];
+        Iq += anticogging_.cogging_map[mod(static_cast<int>(anticogging_pos), axis_->encoder_.config_.cpr)];
     }
 
     float v_err = vel_des - vel_estimate;
-    if (config_->control_mode >= CTRL_MODE_VELOCITY_CONTROL) {
-        Iq += config_->vel_gain * v_err;
+    if (config_.control_mode >= CTRL_MODE_VELOCITY_CONTROL) {
+        Iq += config_.vel_gain * v_err;
     }
 
     // Velocity integral action before limiting
@@ -200,7 +200,7 @@ bool Controller::update(float pos_estimate, float vel_estimate, float* current_s
     }
 
     // Velocity integrator (behaviour dependent on limiting)
-    if (config_->control_mode < CTRL_MODE_VELOCITY_CONTROL) {
+    if (config_.control_mode < CTRL_MODE_VELOCITY_CONTROL) {
         // reset integral if not in use
         vel_integrator_current_ = 0.0f;
     } else {
@@ -208,7 +208,7 @@ bool Controller::update(float pos_estimate, float vel_estimate, float* current_s
             // TODO make decayfactor configurable
             vel_integrator_current_ *= 0.99f;
         } else {
-            vel_integrator_current_ += (config_->vel_integrator_gain * current_meas_period) * v_err;
+            vel_integrator_current_ += (config_.vel_integrator_gain * current_meas_period) * v_err;
         }
     }
 

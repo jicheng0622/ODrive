@@ -99,16 +99,16 @@ public:
     };
 
     Motor(STM32_Timer_t* timer,
-         STM32_GPIO_t* pwm_al_gpio, STM32_GPIO_t* pwm_ah_gpio,
-         STM32_GPIO_t* pwm_bl_gpio, STM32_GPIO_t* pwm_bh_gpio,
-         STM32_GPIO_t* pwm_cl_gpio, STM32_GPIO_t* pwm_ch_gpio,
+         STM32_GPIO_t* pwm_al_gpio, STM32_GPIO_t* pwm_bl_gpio, STM32_GPIO_t* pwm_cl_gpio,
+         STM32_GPIO_t* pwm_ah_gpio, STM32_GPIO_t* pwm_bh_gpio, STM32_GPIO_t* pwm_ch_gpio,
          GateDriver_t* gate_driver_a,
          GateDriver_t* gate_driver_b,
          GateDriver_t* gate_driver_c,
          CurrentSensor_t* current_sensor_a,
          CurrentSensor_t* current_sensor_b,
          CurrentSensor_t* current_sensor_c,
-         Thermistor_t* inverter_thermistor);
+         Thermistor_t* inverter_thermistor,
+         Config_t& config);
 
     bool arm();
     void disarm();
@@ -116,7 +116,7 @@ public:
     void handle_timer_update();
     void handle_current_sensor_update();
 
-    bool setup(Config_t* config);
+    bool setup();
     bool start_updates();
 
     void reset_current_control();
@@ -138,10 +138,10 @@ public:
 
     STM32_Timer_t* timer_;
     STM32_GPIO_t* pwm_al_gpio_;
-    STM32_GPIO_t* pwm_ah_gpio_;
     STM32_GPIO_t* pwm_bl_gpio_;
-    STM32_GPIO_t* pwm_bh_gpio_;
     STM32_GPIO_t* pwm_cl_gpio_;
+    STM32_GPIO_t* pwm_ah_gpio_;
+    STM32_GPIO_t* pwm_bh_gpio_;
     STM32_GPIO_t* pwm_ch_gpio_;
     GateDriver_t* gate_driver_a_;
     GateDriver_t* gate_driver_b_;
@@ -151,7 +151,7 @@ public:
     CurrentSensor_t* current_sensor_c_;
     Thermistor_t* inverter_thermistor_;
 
-    Config_t* config_ = nullptr; // assigned in setup()
+    Config_t& config_;
     Axis* axis_ = nullptr; // set by Axis constructor
 
 //private:
@@ -169,7 +169,7 @@ public:
     // Do not write to this variable directly!
     // It is for exclusive use by the safety_critical_... functions.
     ArmedState_t armed_state_ = ARMED_STATE_DISARMED; 
-    bool is_calibrated_ = config_->pre_calibrated;
+    bool is_calibrated_ = config_.pre_calibrated;
     Iph_ABC_t current_meas_ = {0.0f, 0.0f};
     Iph_ABC_t DC_calib_ = {0.0f, 0.0f};
     CurrentControl_t current_control_ = {
@@ -236,19 +236,19 @@ public:
 //                make_protocol_ro_property("TIMING_LOG_FOC_CURRENT", &timing_log_[TIMING_LOG_FOC_CURRENT])
 //            ),
             make_protocol_object("config",
-                make_protocol_property("pre_calibrated", &config_->pre_calibrated),
-                make_protocol_property("pole_pairs", &config_->pole_pairs),
-                make_protocol_property("calibration_current", &config_->calibration_current),
-                make_protocol_property("resistance_calib_max_voltage", &config_->resistance_calib_max_voltage),
-                make_protocol_property("phase_inductance", &config_->phase_inductance),
-                make_protocol_property("phase_resistance", &config_->phase_resistance),
-                make_protocol_property("direction", &config_->direction),
-                make_protocol_property("motor_type", &config_->motor_type),
-                make_protocol_property("current_lim", &config_->current_lim),
-                make_protocol_property("inverter_temp_limit_lower", &config_->inverter_temp_limit_lower),
-                make_protocol_property("inverter_temp_limit_upper", &config_->inverter_temp_limit_upper),
-                make_protocol_property("requested_current_range", &config_->requested_current_range),
-                make_protocol_property("current_control_bandwidth", &config_->current_control_bandwidth,
+                make_protocol_property("pre_calibrated", &config_.pre_calibrated),
+                make_protocol_property("pole_pairs", &config_.pole_pairs),
+                make_protocol_property("calibration_current", &config_.calibration_current),
+                make_protocol_property("resistance_calib_max_voltage", &config_.resistance_calib_max_voltage),
+                make_protocol_property("phase_inductance", &config_.phase_inductance),
+                make_protocol_property("phase_resistance", &config_.phase_resistance),
+                make_protocol_property("direction", &config_.direction),
+                make_protocol_property("motor_type", &config_.motor_type),
+                make_protocol_property("current_lim", &config_.current_lim),
+                make_protocol_property("inverter_temp_limit_lower", &config_.inverter_temp_limit_lower),
+                make_protocol_property("inverter_temp_limit_upper", &config_.inverter_temp_limit_upper),
+                make_protocol_property("requested_current_range", &config_.requested_current_range),
+                make_protocol_property("current_control_bandwidth", &config_.current_control_bandwidth,
                     [](void* ctx) { static_cast<Motor*>(ctx)->update_current_controller_gains(); }, this)
             )
         );

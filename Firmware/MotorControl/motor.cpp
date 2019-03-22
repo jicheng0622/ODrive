@@ -6,27 +6,27 @@
 
 
 Motor::Motor(STM32_Timer_t* timer,
-             STM32_GPIO_t* pwm_al_gpio, STM32_GPIO_t* pwm_ah_gpio,
-             STM32_GPIO_t* pwm_bl_gpio, STM32_GPIO_t* pwm_bh_gpio,
-             STM32_GPIO_t* pwm_cl_gpio, STM32_GPIO_t* pwm_ch_gpio,
+             STM32_GPIO_t* pwm_al_gpio, STM32_GPIO_t* pwm_bl_gpio, STM32_GPIO_t* pwm_cl_gpio,
+             STM32_GPIO_t* pwm_ah_gpio, STM32_GPIO_t* pwm_bh_gpio, STM32_GPIO_t* pwm_ch_gpio,
              GateDriver_t* gate_driver_a,
              GateDriver_t* gate_driver_b,
              GateDriver_t* gate_driver_c,
              CurrentSensor_t* current_sensor_a,
              CurrentSensor_t* current_sensor_b,
              CurrentSensor_t* current_sensor_c,
-             Thermistor_t* inverter_thermistor) :
+             Thermistor_t* inverter_thermistor,
+             Config_t& config) :
         timer_(timer),
-        pwm_al_gpio_(pwm_al_gpio), pwm_ah_gpio_(pwm_ah_gpio),
-        pwm_bl_gpio_(pwm_bl_gpio), pwm_bh_gpio_(pwm_bh_gpio),
-        pwm_cl_gpio_(pwm_cl_gpio), pwm_ch_gpio_(pwm_ch_gpio),
+        pwm_al_gpio_(pwm_al_gpio), pwm_bl_gpio_(pwm_bl_gpio), pwm_cl_gpio_(pwm_cl_gpio),
+        pwm_ah_gpio_(pwm_ah_gpio), pwm_bh_gpio_(pwm_bh_gpio), pwm_ch_gpio_(pwm_ch_gpio),
         gate_driver_a_(gate_driver_a),
         gate_driver_b_(gate_driver_b),
         gate_driver_c_(gate_driver_c),
         current_sensor_a_(current_sensor_a),
         current_sensor_b_(current_sensor_b),
         current_sensor_c_(current_sensor_c),
-        inverter_thermistor_(inverter_thermistor) {
+        inverter_thermistor_(inverter_thermistor),
+        config_(config) {
 }
 
 // @brief Arms the PWM outputs that belong to this motor.
@@ -64,8 +64,8 @@ void Motor::reset_current_control() {
 // TODO: allow update on user-request or update automatically via hooks
 void Motor::update_current_controller_gains() {
     // Calculate current control gains
-    current_control_.p_gain = config_->current_control_bandwidth * config_->phase_inductance;
-    float plant_pole = config_->phase_resistance / config_->phase_inductance;
+    current_control_.p_gain = config_.current_control_bandwidth * config_.phase_inductance;
+    float plant_pole = config_.phase_resistance / config_.phase_inductance;
     current_control_.i_gain = plant_pole * current_control_.p_gain;
 }
 
@@ -91,6 +91,11 @@ void Motor::handle_timer_update() {
                 TIM_1_8_PERIOD_CLOCKS / 2
             };
             safety_critical_apply_motor_pwm_timings(*this, half_timings);
+
+            // TODO: this check is no longer sensible
+            if (armed_state_ == Motor::ARMED_STATE_ARMED) {
+                __HAL_TIM_MOE_ENABLE(&timer_->htim);  // enable pwm outputs
+            }
         }
         last_pwm_update_timestamp_ = 0xffffffff;
     }
@@ -152,9 +157,7 @@ void Motor::handle_current_sensor_update() {
 }
 
 // @brief Set up the gate drivers
-bool Motor::setup(Config_t* config) {
-    config_ = config;
-
+bool Motor::setup() {
     update_current_controller_gains();
 
     uint16_t timings[] = {
@@ -171,6 +174,8 @@ bool Motor::setup(Config_t* config) {
         0 /* prescaler */,
         TIM_1_8_RCR /* repetition counter */
     );
+    // Ensure that debug halting of the core doesn't leave the motor PWM running
+    timer_->set_freeze_on_dbg(true);
     timer_->setup_pwm(1, pwm_ah_gpio_, pwm_al_gpio_, true, true, TIM_1_8_PERIOD_CLOCKS / 2);
     timer_->setup_pwm(2, pwm_bh_gpio_, pwm_bl_gpio_, true, true, TIM_1_8_PERIOD_CLOCKS / 2);
     timer_->setup_pwm(3, pwm_ch_gpio_, pwm_cl_gpio_, true, true, TIM_1_8_PERIOD_CLOCKS / 2);
@@ -178,7 +183,6 @@ bool Motor::setup(Config_t* config) {
     timer_->set_dead_time(TIM_1_8_DEADTIME_CLOCKS);
     timer_->on_update_.set<Motor, &Motor::handle_timer_update>(*this);
     //timer_.enable_interrupt(TRIGGER_AND_COMMUTATION, 0, 0); // TODO: M1 used to enable this one too, why?
-
 
     static const float kMargin = 0.90f;
     static const float kTripMargin = 1.0f; // Trip level is at edge of linear range of amplifer
@@ -197,11 +201,11 @@ bool Motor::setup(Config_t* config) {
     if (!current_sensor_a_ || !current_sensor_b_ || !current_sensor_c_)
         return false;
 
-    if (!current_sensor_a_->setup(config_->requested_current_range / kMargin))
+    if (!current_sensor_a_->setup(config_.requested_current_range / kMargin))
         return false;
-    if (!current_sensor_b_->setup(config_->requested_current_range / kMargin))
+    if (!current_sensor_b_->setup(config_.requested_current_range / kMargin))
         return false;
-    if (!current_sensor_c_->setup(config_->requested_current_range / kMargin))
+    if (!current_sensor_c_->setup(config_.requested_current_range / kMargin))
         return false;
 
     float range_a, range_b, range_c;
@@ -238,7 +242,19 @@ bool Motor::start_updates() {
     current_sensor_b_->enable_updates();
     current_sensor_c_->enable_updates();
 
+    uint32_t half_load = TIM_1_8_PERIOD_CLOCKS / 2;
+    timer_->htim.Instance->CCR1 = half_load;
+    timer_->htim.Instance->CCR2 = half_load;
+    timer_->htim.Instance->CCR3 = half_load;
+
+    // TODO: CH4 used to be started too
+    timer_->enable_pwm(true, true, true, true, true, true, false, false);
+
+    // Enable the update interrupt (used to coherently sample GPIO)
     timer_->enable_update_interrupt();
+
+    // TODO: this can probably be removed
+    safety_critical_disarm_motor_pwm(*this);
 
     return true;
 }
@@ -274,13 +290,13 @@ float Motor::get_inverter_temp() {
 
 bool Motor::update_thermal_limits() {
     float fet_temp = get_inverter_temp();
-    float temp_margin = config_->inverter_temp_limit_upper - fet_temp;
-    float derating_range = config_->inverter_temp_limit_upper - config_->inverter_temp_limit_lower;
-    thermal_current_lim_ = config_->current_lim * (temp_margin / derating_range);
+    float temp_margin = config_.inverter_temp_limit_upper - fet_temp;
+    float derating_range = config_.inverter_temp_limit_upper - config_.inverter_temp_limit_lower;
+    thermal_current_lim_ = config_.current_lim * (temp_margin / derating_range);
     if (!(thermal_current_lim_ >= 0.0f)) { //Funny polarity to also catch NaN
         thermal_current_lim_ = 0.0f;
     }
-    if (fet_temp > config_->inverter_temp_limit_upper + 5) {
+    if (fet_temp > config_.inverter_temp_limit_upper + 5) {
         set_error(ERROR_INVERTER_OVER_TEMP);
         return false;
     }
@@ -301,9 +317,9 @@ bool Motor::do_checks() {
 
 float Motor::effective_current_lim() {
     // Configured limit
-    float current_lim = config_->current_lim;
+    float current_lim = config_.current_lim;
     // Hardware limit
-    if (axis_->motor_.config_->motor_type == Motor::MOTOR_TYPE_GIMBAL) {
+    if (axis_->motor_.config_.motor_type == Motor::MOTOR_TYPE_GIMBAL) {
         current_lim = std::min(current_lim, 0.98f*one_by_sqrt3*vbus_voltage);
     } else {
         current_lim = std::min(current_lim, axis_->motor_.current_control_.max_allowed_current);
@@ -346,7 +362,7 @@ bool Motor::measure_phase_resistance(float test_current, float max_voltage) {
     //    return false; // error set inside enqueue_voltage_timings
 
     float R = test_voltage / test_current;
-    config_->phase_resistance = R;
+    config_.phase_resistance = R;
     return true; // if we ran to completion that means success
 }
 
@@ -380,7 +396,7 @@ bool Motor::measure_phase_inductance(float voltage_low, float voltage_high) {
     float dI_by_dt = (Ialphas[1] - Ialphas[0]) / (current_meas_period * (float)num_cycles);
     float L = v_L / dI_by_dt;
 
-    config_->phase_inductance = L;
+    config_.phase_inductance = L;
     // TODO arbitrary values set for now
     if (L < 2e-6f || L > 4000e-6f)
         return set_error(ERROR_PHASE_INDUCTANCE_OUT_OF_RANGE), false;
@@ -389,13 +405,13 @@ bool Motor::measure_phase_inductance(float voltage_low, float voltage_high) {
 
 
 bool Motor::run_calibration() {
-    float R_calib_max_voltage = config_->resistance_calib_max_voltage;
-    if (config_->motor_type == MOTOR_TYPE_HIGH_CURRENT) {
-        if (!measure_phase_resistance(config_->calibration_current, R_calib_max_voltage))
+    float R_calib_max_voltage = config_.resistance_calib_max_voltage;
+    if (config_.motor_type == MOTOR_TYPE_HIGH_CURRENT) {
+        if (!measure_phase_resistance(config_.calibration_current, R_calib_max_voltage))
             return false;
         if (!measure_phase_inductance(-R_calib_max_voltage, R_calib_max_voltage))
             return false;
-    } else if (config_->motor_type == MOTOR_TYPE_GIMBAL) {
+    } else if (config_.motor_type == MOTOR_TYPE_GIMBAL) {
         // no calibration needed
     } else {
         return false;
@@ -517,19 +533,19 @@ bool Motor::FOC_current(float Id_des, float Iq_des, float I_phase, float pwm_pha
 
 
 bool Motor::update(float current_setpoint, float phase, float phase_vel) {
-    current_setpoint *= config_->direction;
-    phase *= config_->direction;
-    phase_vel *= config_->direction;
+    current_setpoint *= config_.direction;
+    phase *= config_.direction;
+    phase_vel *= config_.direction;
 
     float pwm_phase = phase + 1.5f * current_meas_period * phase_vel;
 
     // Execute current command
     // TODO: move this into the mot
-    if (config_->motor_type == MOTOR_TYPE_HIGH_CURRENT) {
+    if (config_.motor_type == MOTOR_TYPE_HIGH_CURRENT) {
         if(!FOC_current(0.0f, current_setpoint, phase, pwm_phase)){
             return false;
         }
-    } else if (config_->motor_type == MOTOR_TYPE_GIMBAL) {
+    } else if (config_.motor_type == MOTOR_TYPE_GIMBAL) {
         //In gimbal motor mode, current is reinterptreted as voltage.
         if(!FOC_voltage(0.0f, current_setpoint, pwm_phase))
             return false;

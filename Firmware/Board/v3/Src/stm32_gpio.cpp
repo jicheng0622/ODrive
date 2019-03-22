@@ -224,14 +224,13 @@ bool STM32_GPIO_t::is_in_list(const STM32_GPIO_t** gpio_list) {
     return false;
 }
 
-void HAL_GPIO_EXTI_Callback(uint16_t pin_mask) {
-    // Dispatch processing of external interrupts based on source
-    for (size_t i = 0; i < n_subscriptions; ++i) {
-        if ((1U << subscriptions[i].gpio->pin_number) == pin_mask) // TODO: check for port
-            if (subscriptions[i].callback)
-                subscriptions[i].callback(subscriptions[i].ctx);
-    }
+void STM32_GPIO_t::deinit() {
+    unsubscribe();
+    HAL_GPIO_DeInit(port, 1U << pin_number);
 }
+
+
+/* Interrupt entrypoints -----------------------------------------------------*/
 
 extern "C" {
 void EXTI0_IRQHandler(void);
@@ -240,6 +239,16 @@ void EXTI3_IRQHandler(void);
 void EXTI4_IRQHandler(void);
 void EXTI9_5_IRQHandler(void);
 void EXTI15_10_IRQHandler(void);
+void HAL_GPIO_EXTI_Callback(uint16_t pin_mask);
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t pin_mask) {
+    // Dispatch processing of external interrupts based on source
+    for (size_t i = 0; i < n_subscriptions; ++i) {
+        if ((1U << subscriptions[i].gpio->pin_number) == pin_mask) // TODO: check for port
+            if (subscriptions[i].callback)
+                subscriptions[i].callback(subscriptions[i].ctx);
+    }
 }
 
 /** @brief Entrypoint for the EXTI line0 interrupt. */
@@ -283,6 +292,8 @@ void EXTI15_10_IRQHandler(void) {
   HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_15);
 }
 
+
+/* Peripheral definitions ----------------------------------------------------*/
 
 STM32_GPIO_t pa0(GPIOA, 0), pa1(GPIOA, 1), pa2(GPIOA, 2), pa3(GPIOA, 3);
 STM32_GPIO_t pa4(GPIOA, 4), pa5(GPIOA, 5), pa6(GPIOA, 6), pa7(GPIOA, 7);
