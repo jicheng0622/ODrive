@@ -15,6 +15,7 @@ Motor::Motor(STM32_Timer_t* timer,
              CurrentSensor_t* current_sensor_b,
              CurrentSensor_t* current_sensor_c,
              Thermistor_t* inverter_thermistor,
+             uint16_t period, uint16_t repetition_counter, uint16_t dead_time,
              Config_t& config) :
         timer_(timer),
         pwm_al_gpio_(pwm_al_gpio), pwm_bl_gpio_(pwm_bl_gpio), pwm_cl_gpio_(pwm_cl_gpio),
@@ -26,6 +27,7 @@ Motor::Motor(STM32_Timer_t* timer,
         current_sensor_b_(current_sensor_b),
         current_sensor_c_(current_sensor_c),
         inverter_thermistor_(inverter_thermistor),
+        period_(period), repetition_counter_(repetition_counter), dead_time_(dead_time),
         config_(config) {
 }
 
@@ -86,16 +88,11 @@ void Motor::handle_timer_update() {
             // comes into effect until this interrupt handler is executed again and
             // disarms the output alltogether.
             uint16_t half_timings[] = {
-                TIM_1_8_PERIOD_CLOCKS / 2,
-                TIM_1_8_PERIOD_CLOCKS / 2,
-                TIM_1_8_PERIOD_CLOCKS / 2
+                (uint16_t)(period_ / 2),
+                (uint16_t)(period_ / 2),
+                (uint16_t)(period_ / 2)
             };
-            safety_critical_apply_motor_pwm_timings(*this, half_timings);
-
-            // TODO: this check is no longer sensible
-            if (armed_state_ == Motor::ARMED_STATE_ARMED) {
-                __HAL_TIM_MOE_ENABLE(&timer_->htim);  // enable pwm outputs
-            }
+            safety_critical_apply_motor_pwm_timings(*this, period_, half_timings);
         }
         last_pwm_update_timestamp_ = 0xffffffff;
     }
@@ -113,7 +110,7 @@ void Motor::handle_timer_update() {
 // TODO: Document how the phasing is done, link to timing diagram
 void Motor::handle_current_sensor_update() {
 #define calib_tau 0.2f  //@TOTO make more easily configurable
-    static const float calib_filter_k = CURRENT_MEAS_PERIOD / calib_tau;
+    static const float calib_filter_k = current_meas_period / calib_tau;
 
     // If the corresponding timer is counting up, we just sampled in SVM vector 0, i.e. real current
     // If we are counting down, we just sampled in SVM vector 7, with zero current
@@ -157,35 +154,36 @@ void Motor::handle_current_sensor_update() {
 }
 
 // @brief Set up the gate drivers
-bool Motor::setup() {
+bool Motor::init() {
     update_current_controller_gains();
 
-    uint16_t timings[] = {
-        TIM_1_8_DEADTIME_CLOCKS / 2,
-        TIM_1_8_DEADTIME_CLOCKS / 2,
-        TIM_1_8_DEADTIME_CLOCKS / 2
+    uint16_t half_timings[] = {
+        (uint16_t)(period_ / 2),
+        (uint16_t)(period_ / 2),
+        (uint16_t)(period_ / 2)
     };
-    safety_critical_apply_motor_pwm_timings(*this, timings);
+    safety_critical_apply_motor_pwm_timings(*this, period_, half_timings);
 
     // Init PWM
-    if (!timer_->setup(
-            TIM_1_8_PERIOD_CLOCKS /* period */,
+    if (!timer_->init(
+            period_ /* period */,
             STM32_Timer_t::UP_DOWN /* mode */,
             0 /* prescaler */,
-            TIM_1_8_RCR /* repetition counter */
+            repetition_counter_ /* repetition counter */
         )) {
         return false;
     }
     // Ensure that debug halting of the core doesn't leave the motor PWM running
     if (!timer_->set_freeze_on_dbg(true)
-        || !timer_->setup_pwm(1, pwm_ah_gpio_, pwm_al_gpio_, true, true, TIM_1_8_PERIOD_CLOCKS / 2)
-        || !timer_->setup_pwm(2, pwm_bh_gpio_, pwm_bl_gpio_, true, true, TIM_1_8_PERIOD_CLOCKS / 2)
-        || !timer_->setup_pwm(3, pwm_ch_gpio_, pwm_cl_gpio_, true, true, TIM_1_8_PERIOD_CLOCKS / 2)
-        || !timer_->setup_pwm(4, nullptr, nullptr, true, true, TIM_1_8_PERIOD_CLOCKS / 2) // required to trigger ADC
-        || !timer_->set_dead_time(TIM_1_8_DEADTIME_CLOCKS)
+        || !timer_->setup_pwm(1, pwm_ah_gpio_, pwm_al_gpio_, true, true, period_ / 2)
+        || !timer_->setup_pwm(2, pwm_bh_gpio_, pwm_bl_gpio_, true, true, period_ / 2)
+        || !timer_->setup_pwm(3, pwm_ch_gpio_, pwm_cl_gpio_, true, true, period_ / 2)
+        /*|| !timer_->setup_pwm(4, nullptr, nullptr, true, true, period_ / 2)*/ // required to trigger ADC
+        || !timer_->set_dead_time(dead_time_)
         || !timer_->on_update_.set<Motor, &Motor::handle_timer_update>(*this)) {
         return false;
     }
+    vbus_voltage = 124;
     //timer_.enable_interrupt(TRIGGER_AND_COMMUTATION, 0, 0); // TODO: M1 used to enable this one too, why?
 
     static const float kMargin = 0.90f;
@@ -195,21 +193,21 @@ bool Motor::setup() {
         return false;
 
     // Init ADC
-    if (!gate_driver_a_->setup())
+    if (!gate_driver_a_->init())
         return false;
-    if (!gate_driver_b_->setup())
+    if (!gate_driver_b_->init())
         return false;
-    if (!gate_driver_c_->setup())
+    if (!gate_driver_c_->init())
         return false;
 
     if (!current_sensor_a_ || !current_sensor_b_ || !current_sensor_c_)
         return false;
 
-    if (!current_sensor_a_->setup(config_.requested_current_range / kMargin))
+    if (!current_sensor_a_->init(config_.requested_current_range / kMargin))
         return false;
-    if (!current_sensor_b_->setup(config_.requested_current_range / kMargin))
+    if (!current_sensor_b_->init(config_.requested_current_range / kMargin))
         return false;
-    if (!current_sensor_c_->setup(config_.requested_current_range / kMargin))
+    if (!current_sensor_c_->init(config_.requested_current_range / kMargin))
         return false;
 
     system_stats_.boot_progress++;
@@ -249,23 +247,27 @@ bool Motor::start_updates() {
     // The inferred current sensor doesn't trigger update events so we ignore
     // the return values here. If none of them triggers, the PWM timings will not
     // be updated and the motor will go to error state.
-    (void) current_sensor_a_->enable_updates(); // don't check return values here. Inferred
+    (void) current_sensor_a_->enable_updates();
     (void) current_sensor_b_->enable_updates();
     (void) current_sensor_c_->enable_updates();
 
-    uint32_t half_load = TIM_1_8_PERIOD_CLOCKS / 2;
+
+    pwm_control_deadline_ = period_ - 1;
+    uint16_t half_load = period_ / 2;
     timer_->htim.Instance->CCR1 = half_load;
     timer_->htim.Instance->CCR2 = half_load;
     timer_->htim.Instance->CCR3 = half_load;
-
-    // TODO: CH4 used to be started too
-    timer_->enable_pwm(true, true, true, true, true, true, false, false);
 
     // Enable the update interrupt (used to coherently sample GPIO)
     timer_->enable_update_interrupt();
 
     // TODO: this can probably be removed
     safety_critical_disarm_motor_pwm(*this);
+
+    // TODO: CH4 used to be started too - why?
+    timer_->enable_pwm(true, true, true, true, true, true, false, false);
+
+    timer_->start();
 
     return true;
 }
@@ -348,7 +350,7 @@ float Motor::effective_current_lim() {
 // TODO check Ibeta balance to verify good motor connection
 bool Motor::measure_phase_resistance(float test_current, float max_voltage) {
     static const float kI = 10.0f;                                 // [(V/s)/A]
-    static const int num_test_cycles = static_cast<int>(3.0f / CURRENT_MEAS_PERIOD); // Test runs for 3s
+    static const size_t num_test_cycles = static_cast<size_t>(3.0f / current_meas_period); // Test runs for 3s
     float test_voltage = 0.0f;
     
     size_t i = 0;
@@ -439,11 +441,11 @@ bool Motor::enqueue_modulation_timings(float mod_alpha, float mod_beta) {
     if (SVM(mod_alpha, mod_beta, &tA, &tB, &tC) != 0)
         return set_error(ERROR_MODULATION_MAGNITUDE), false;
     uint16_t next_timings[] = {
-        (uint16_t)(tA * (float)TIM_1_8_PERIOD_CLOCKS),
-        (uint16_t)(tB * (float)TIM_1_8_PERIOD_CLOCKS),
-        (uint16_t)(tC * (float)TIM_1_8_PERIOD_CLOCKS)
+        (uint16_t)(tA * (float)period_),
+        (uint16_t)(tB * (float)period_),
+        (uint16_t)(tC * (float)period_)
     };
-    safety_critical_apply_motor_pwm_timings(*this, next_timings);
+    safety_critical_apply_motor_pwm_timings(*this, period_, next_timings);
     update_brake_current();
     return true;
 }

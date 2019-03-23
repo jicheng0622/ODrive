@@ -15,11 +15,31 @@ extern "C" {
 void _Error_Handler(char *, int);
 #define Error_Handler() _Error_Handler(__FILE__, __LINE__)
 
+extern uint32_t _reboot_cookie;
+
 /**
  * @brief Initializes low level system features such as clocks, fault handlers
  * and memories.
  */
 bool system_init(void);
+
+/**
+ * @brief: Starts a section that cannot be interrupted by any normal interrupt.
+ */
+static inline uint32_t cpu_enter_critical() {
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    return primask;
+}
+
+/**
+ * @brief: When called with the return value of cpu_enter_critical(), the
+ * interrupts are re-enabled if and only if they were enabled prior to entering
+ * the critical section.
+ */
+static inline void cpu_exit_critical(uint32_t priority_mask) {
+    __set_PRIMASK(priority_mask);
+}
 
 /** @brief: Returns number of microseconds since system startup */
 static inline uint32_t micros(void) {

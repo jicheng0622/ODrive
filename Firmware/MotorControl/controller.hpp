@@ -36,7 +36,7 @@ public:
 
     explicit Controller(Config_t& config) : config_(config) {}
 
-    bool setup() { return true; }
+    bool init() { return true; }
 
     void reset();
     void set_error(Error_t error);

@@ -6,18 +6,18 @@
 
 #include <algorithm>
 
-bool DRV8301_t::setup() {
+bool DRV8301_t::init() {
     if (!is_setup_) {
-        //if (!spi.setup()) // handled in main init function
+        //if (!spi.init()) // handled in main init function
         //    return false;
         if (chip_select_gpio)
-            if (!chip_select_gpio->setup(GPIO_t::OUTPUT, GPIO_t::NO_PULL, true))
+            if (!chip_select_gpio->init(GPIO_t::OUTPUT, GPIO_t::NO_PULL, true))
                 return false;
         if (enable_gpio)
-            if (!enable_gpio->setup(GPIO_t::OUTPUT, GPIO_t::NO_PULL, false))
+            if (!enable_gpio->init(GPIO_t::OUTPUT, GPIO_t::NO_PULL, false))
                 return false;
         if (nfault_gpio)
-            if (!nfault_gpio->setup(GPIO_t::INPUT, GPIO_t::PULL_DOWN, false))
+            if (!nfault_gpio->init(GPIO_t::INPUT, GPIO_t::PULL_DOWN, false))
                 return false;
 
         DRV8301_enable(&gate_driver_);

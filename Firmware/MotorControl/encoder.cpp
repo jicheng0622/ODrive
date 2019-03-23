@@ -20,7 +20,7 @@ static void enc_index_cb_wrapper(void* ctx) {
     reinterpret_cast<Encoder*>(ctx)->enc_index_cb();
 }
 
-bool Encoder::setup() {
+bool Encoder::init() {
     update_pll_gains();
 
     if (config_.pre_calibrated && (config_.mode == Encoder::MODE_HALL || config_.mode == Encoder::MODE_SINCOS)) {
@@ -30,7 +30,7 @@ bool Encoder::setup() {
     if (!counter_) {
         return false;
     }
-    if (!counter_->setup(0xffff /* period */, STM32_Timer_t::UP /* mode */)) {
+    if (!counter_->init(0xffff /* period */, STM32_Timer_t::UP /* mode */)) {
         return false;
     }
     if (!counter_->config_encoder_mode(hallA_gpio_ /* Mx_ENC_A */, hallB_gpio_ /* Mx_ENC_B */)) {
@@ -82,7 +82,7 @@ void Encoder::enc_index_cb() {
 
 void Encoder::set_idx_subscribe(bool override_enable) {
     if (override_enable || (config_.use_index && !config_.find_idx_on_lockin_only)) {
-        index_gpio_->setup(GPIO_t::INPUT, GPIO_t::PULL_DOWN);
+        index_gpio_->init(GPIO_t::INPUT, GPIO_t::PULL_DOWN);
         index_gpio_->subscribe(true, false, enc_index_cb_wrapper, this);
     }
 

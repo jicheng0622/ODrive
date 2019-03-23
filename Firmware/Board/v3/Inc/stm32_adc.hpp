@@ -34,7 +34,9 @@ public:
         }
     }
 
-    bool setup() final { return true; } // currently unused
+    bool init() final {
+        return !gpio_ || gpio_->setup_analog();
+    }
     bool get_voltage(float *value) final;
     bool get_normalized(float *value) final;
     bool enable_updates() final;
@@ -66,7 +68,7 @@ public:
             gpios(gpios),
             dmas(dmas) { }
 
-    bool setup();
+    bool init();
 
     bool is_setup_ = false;
 };
@@ -77,7 +79,7 @@ public:
  * Currently the assumption is that you init this object only once at startup
  * in the following order:
  * 
- *  1. setup()
+ *  1. init()
  *  2. set_trigger() (unless software trigger is used)
  *  3. append() (multiple times)
  *  4. apply()
@@ -102,7 +104,7 @@ public:
      * In both cases, the on_update_ event of every channel is invoked in order
      * every time the complete sequence was read in.
      */
-    virtual bool setup(STM32_DMAStream_t* dma) = 0;
+    virtual bool init(STM32_DMAStream_t* dma) = 0;
 
     /**
      * @brief Configures the trigger output of the specified timer as trigger
@@ -222,7 +224,7 @@ public:
 
     STM32_ADCRegular_t(STM32_ADC_t* adc) : STM32_ADCSequence_N_t(adc) {}
 
-    bool setup(STM32_DMAStream_t* dma) final;
+    bool init(STM32_DMAStream_t* dma) final;
     bool set_trigger(STM32_Timer_t* timer) final;
     bool apply() final;
     bool enable() final;
@@ -236,7 +238,7 @@ public:
 
     STM32_ADCInjected_t(STM32_ADC_t* adc) : STM32_ADCSequence_N_t(adc) {}
 
-    bool setup(STM32_DMAStream_t* dma) final;
+    bool init(STM32_DMAStream_t* dma) final;
     bool set_trigger(STM32_Timer_t* timer) final;
     bool apply() final;
     bool enable() final;

@@ -34,7 +34,7 @@ uint8_t STM32_DMAStream_t::find_in_list(const STM32_DMAChannel_t* channel_list) 
     return UINT8_MAX;
 }
 
-bool STM32_DMAStream_t::setup(const STM32_DMAChannel_t* channels, DOMAIN src, DOMAIN dst, ALIGNMENT alignment, MODE mode, PRIORITY priority) {
+bool STM32_DMAStream_t::init(const STM32_DMAChannel_t* channels, DOMAIN src, DOMAIN dst, ALIGNMENT alignment, MODE mode, PRIORITY priority) {
     uint8_t channel_number = find_in_list(channels);
     if (channel_number >= sizeof(channel_ids) / sizeof(channel_ids[0]))
         return false;

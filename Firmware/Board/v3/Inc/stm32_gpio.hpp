@@ -12,19 +12,19 @@ public:
     STM32_GPIO_t(GPIO_TypeDef* port, uint16_t pin_number) :
             port(port), pin_number(pin_number) {}
 
-    bool setup(MODE mode, PULL pull, bool state = false);
+    bool init(MODE mode, PULL pull, bool state = false);
 
     /*
     * @brief Sets up the GPIO for use as an ADC input.
     * Returns true if the setup succeeded and false otherwise.
-    * This can be called without calling setup() first.
+    * This can be called without calling init() first.
     */
     bool setup_analog();
 
     /*
     * @brief Sets up the GPIO for use with the specified alternate function.
     * Returns true if the setup succeeded and false otherwise.
-    * This can be called without calling setup() first.
+    * This can be called without calling init() first.
     * 
     * @param valid_gpios: A nullptr terminated list that specifies all valid
     *        GPIOs for this function. If this GPIO is not part of the list, the

@@ -16,7 +16,7 @@ public:
 
     explicit SensorlessEstimator(Config_t& config) : config_(config) {}
 
-    bool setup() { return true; }
+    bool init() { return true; }
 
     bool update();
 

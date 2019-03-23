@@ -30,16 +30,16 @@ Axis::Axis(Motor motor,
 
 // @brief Sets up all components of the axis,
 // such as gate driver and encoder hardware.
-bool Axis::setup() {
-    if (!motor_.setup())
+bool Axis::init() {
+    if (!motor_.init())
         return false;
-    if (!encoder_.setup())
+    if (!encoder_.init())
         return false;
-    if (!sensorless_estimator_.setup())
+    if (!sensorless_estimator_.init())
         return false;
-    if (!controller_.setup())
+    if (!controller_.init())
         return false;
-    if (!trap_.setup())
+    if (!trap_.init())
         return false;
 
     decode_step_dir_pins();
@@ -110,10 +110,10 @@ void Axis::update_watchdog_settings() {
 void Axis::set_step_dir_active(bool active) {
     if (active) {
         if (dir_gpio_) {
-            dir_gpio_->setup(GPIO_t::INPUT, GPIO_t::NO_PULL);
+            dir_gpio_->init(GPIO_t::INPUT, GPIO_t::NO_PULL);
         }
         if (step_gpio_) {
-            step_gpio_->setup(GPIO_t::INPUT, GPIO_t::PULL_DOWN);
+            step_gpio_->init(GPIO_t::INPUT, GPIO_t::PULL_DOWN);
             step_gpio_->subscribe(true, false,
                 [](void* ctx){ reinterpret_cast<Axis*>(ctx)->step_cb(); }, this);
         }

@@ -43,6 +43,8 @@ BoardConfig_t board_config;
 PerChannelConfig_t axis_configs[AXIS_COUNT];
 bool user_config_loaded_;
 
+const float current_meas_period = CURRENT_MEAS_PERIOD;
+const int current_meas_hz = CURRENT_MEAS_HZ;
 SystemStats_t system_stats_ = { 0 };
 float vbus_voltage = 12.0f;
 
@@ -238,7 +240,7 @@ int main_task(void) {
         goto fail;
     if (!usb.add_tx_endpoint(&odrive_tx_endpoint))
         goto fail;
-    if (!usb.setup(
+    if (!usb.init(
         0x1209, 0x0D32, 1033, // VID, PID, LangID
         "ODrive Robotics", product_str, serial_number_str, "CDC Config", "CDC Interface", native_interface_str,
         &composite_device
@@ -249,7 +251,7 @@ int main_task(void) {
 
 #if 0
     // M0/M1 PWM input
-    tim5.setup(
+    tim5.init(
         0xFFFFFFFF, // period
         STM32_Timer_t::UP
     );
@@ -260,11 +262,11 @@ int main_task(void) {
     if (board_config.enable_i2c_instead_of_can) {
         // TODO: make
         if (i2c_a0_gpio)
-            i2c_a0_gpio->setup(GPIO_t::INPUT, GPIO_t::PULL_UP);
+            i2c_a0_gpio->init(GPIO_t::INPUT, GPIO_t::PULL_UP);
         if (i2c_a1_gpio)
-            i2c_a1_gpio->setup(GPIO_t::INPUT, GPIO_t::PULL_UP);
+            i2c_a1_gpio->init(GPIO_t::INPUT, GPIO_t::PULL_UP);
         if (i2c_a2_gpio)
-            i2c_a2_gpio->setup(GPIO_t::INPUT, GPIO_t::PULL_UP);
+            i2c_a2_gpio->init(GPIO_t::INPUT, GPIO_t::PULL_UP);
 
         osDelay(1);
         i2c_stats_.addr = (0xD << 3);
@@ -275,7 +277,7 @@ int main_task(void) {
     } else
 #endif
     {
-        can1.setup(&pb8, &pb9);
+        can1.init(&pb8, &pb9);
     }
 
     // Init general user ADC on some GPIOs.
@@ -300,18 +302,18 @@ int main_task(void) {
     // TODO: make dynamically reconfigurable
 #if HW_VERSION_MAJOR == 3 && HW_VERSION_MINOR >= 3
     if (board_config.enable_uart) {
-        if (!uart4.setup(115200, gpios[0], gpios[1], &dma1_stream4, &dma1_stream2)) // Provisionally this can be changed to 921600 for faster transfers, the low power Arduinos will not keep up. 
+        if (!uart4.init(115200, gpios[0], gpios[1], &dma1_stream4, &dma1_stream2)) // Provisionally this can be changed to 921600 for faster transfers, the low power Arduinos will not keep up. 
             goto fail;
     }
 #endif
 
     // TODO: DMA is not really used by the DRV8301 driver, remove stream
-    if (!spi3.setup(&pc10, &pc11, &pc12, &dma1_stream5, &dma1_stream0)) {
+    if (!spi3.init(&pc10, &pc11, &pc12, &dma1_stream5, &dma1_stream0)) {
         goto fail;
     }
 
     // Diagnostics timer
-    //tim13.setup(
+    //tim13.init(
     //    (2 * TIM_1_8_PERIOD_CLOCKS * (TIM_1_8_RCR+1)) * ((float)TIM_APB1_CLOCK_HZ / (float)TIM_1_8_CLOCK_HZ) - 1, // period
     //    STM32_Timer_t::UP
     //);
@@ -321,7 +323,7 @@ int main_task(void) {
 
     /* Set up ADC ------------------------------------------------------------*/
 
-    if (!vbus_sense.setup()) {
+    if (!vbus_sense.init()) {
         goto fail;
     }
     if (!vbus_sense.on_update_.set<void>([](void*) {
@@ -338,7 +340,7 @@ int main_task(void) {
     system_stats_.boot_progress++;
 
     // AUX PWM
-    tim2.setup(
+    tim2.init(
         TIM_APB1_PERIOD_CLOCKS, // period
         STM32_Timer_t::UP_DOWN
     );
@@ -356,12 +358,12 @@ int main_task(void) {
     system_stats_.boot_progress++;
 
     // TODO: find a better place to init the ADC sequence
-    if (!adc1_injected.setup(nullptr) ||
-        !adc2_injected.setup(nullptr) ||
-        !adc3_injected.setup(nullptr) ||
-        !adc1_regular.setup(&dma2_stream0) ||
-        !adc2_regular.setup(&dma2_stream2) ||
-        !adc3_regular.setup(&dma2_stream1)) {
+    if (!adc1_injected.init(nullptr) ||
+        !adc2_injected.init(nullptr) ||
+        !adc3_injected.init(nullptr) ||
+        !adc1_regular.init(&dma2_stream0) ||
+        !adc2_regular.init(&dma2_stream2) ||
+        !adc3_regular.init(&dma2_stream1)) {
         goto fail;
     }
 
@@ -382,23 +384,31 @@ int main_task(void) {
         !adc3_injected.append(&adc_m0_c) ||
         !adc2_regular.append(&adc_m1_b) ||
         !adc3_regular.append(&adc_m1_c) ||
-        !adc1_regular.append(&adc_vbus_sense)) {
+        !adc1_injected.append(&adc_vbus_sense)) {
         goto fail;
     }
 
     system_stats_.boot_progress = 10;
 
+#if 0
+    // TODO: think of something that this doesn't disable UART and such
     for (size_t i = 0; i < sizeof(gpio_adcs) / sizeof(gpio_adcs[0]); ++i) {
+        printf("will init %d\r\n", i);
+        osDelay(100);
         if (gpio_adcs[i].is_valid()) {
-            if (!adc1_regular.append(&gpio_adcs[i])) {
+            if (!gpio_adcs[i].init() ||
+                !adc1_regular.append(&gpio_adcs[i])) {
                 goto fail;
             }
         }
     }
+#endif
 
     system_stats_.boot_progress++;
 
     // TODO: set up the remaining channels
+
+    osDelay(1);
 
     if (!adc1_injected.apply() ||
         !adc2_injected.apply() ||
@@ -408,6 +418,8 @@ int main_task(void) {
         !adc3_regular.apply()) {
         goto fail;
     }
+
+    osDelay(1);
 
     system_stats_.boot_progress++;
     
@@ -429,7 +441,7 @@ int main_task(void) {
 
     // Setup hardware for all components
     for (size_t i = 0; i < AXIS_COUNT; ++i) {
-        if (!axes[i].setup()) {
+        if (!axes[i].init()) {
             goto fail;
         }
     }
@@ -438,22 +450,16 @@ int main_task(void) {
     // Init communications
     init_communication();
 
-    if (!adc1_regular.enable(),
-        !adc2_regular.enable(),
-        !adc3_regular.enable(),
-        !adc1_injected.enable(),
-        !adc2_injected.enable(),
-        !adc3_injected.enable()) {
-        goto fail;
-    }
 
-#if 0
+#if 1
     for (size_t i = 0; i < AXIS_COUNT; ++i) {
         axes[i].motor_.start_updates();
     }
     // Synchronize PWM of both motors up to a 90° PWM phase shift
     sync_timers(axes[0].motor_.timer_, axes[1].motor_.timer_, TIM_CLOCKSOURCE_ITR0, TIM_1_8_PERIOD_CLOCKS / 2 - 1 * 128, nullptr);
+#endif
 
+#if 0
     // Start brake resistor PWM
     start_brake_pwm();
 #endif
@@ -482,8 +488,8 @@ int main_task(void) {
     system_stats_.fully_booted = true;
     for (;;) {
         //uart4.start_tx((const uint8_t*)"a\r\n", 3, nullptr, nullptr);
-        printf("hi\r\n");
-//        //printf("uptime: %" PRIu32 "\r\n", system_stats_.uptime);
+//        printf("hi\r\n");
+        printf("uptime: %" PRIu32 "\r\n", system_stats_.uptime);
 //        uint32_t prev_ints = all_usb_ints;
 //        all_usb_ints = 0;
 //        printf("USB ints: %08" PRIx32 "\r\n", prev_ints);

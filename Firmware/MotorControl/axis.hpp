@@ -88,7 +88,7 @@ public:
         osPriority thread_priority,
         Config_t& config);
 
-    bool setup();
+    bool init();
     void start_thread();
     void signal_current_meas();
     bool wait_for_current_meas();

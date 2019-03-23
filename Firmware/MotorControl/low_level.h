@@ -28,7 +28,7 @@ extern uint16_t adc_measurements_[ADC_CHANNEL_COUNT];
 
 void safety_critical_arm_motor_pwm(Motor& motor);
 bool safety_critical_disarm_motor_pwm(Motor& motor);
-void safety_critical_apply_motor_pwm_timings(Motor& motor, uint16_t timings[3]);
+void safety_critical_apply_motor_pwm_timings(Motor& motor, uint16_t period, uint16_t timings[3]);
 void safety_critical_arm_brake_resistor();
 void safety_critical_disarm_brake_resistor();
 void safety_critical_apply_brake_resistor_timings(uint32_t low_off, uint32_t high_on);
@@ -42,16 +42,6 @@ void pwm_in_init();
 void start_analog_thread();
 
 void update_brake_current();
-
-inline uint32_t cpu_enter_critical() {
-    uint32_t primask = __get_PRIMASK();
-    __disable_irq();
-    return primask;
-}
-
-inline void cpu_exit_critical(uint32_t priority_mask) {
-    __set_PRIMASK(priority_mask);
-}
 
 #ifdef __cplusplus
 }

@@ -1,7 +1,7 @@
 
 #include "stm32_spi.hpp"
 
-bool STM32_SPI_t::setup(STM32_GPIO_t* sck_gpio, STM32_GPIO_t* miso_gpio, STM32_GPIO_t* mosi_gpio, STM32_DMAStream_t* tx_dma, STM32_DMAStream_t* rx_dma) {
+bool STM32_SPI_t::init(STM32_GPIO_t* sck_gpio, STM32_GPIO_t* miso_gpio, STM32_GPIO_t* mosi_gpio, STM32_DMAStream_t* tx_dma, STM32_DMAStream_t* rx_dma) {
     if (hspi.Instance == SPI1)
         __HAL_RCC_SPI1_CLK_ENABLE();
     else if (hspi.Instance == SPI2)
@@ -12,14 +12,14 @@ bool STM32_SPI_t::setup(STM32_GPIO_t* sck_gpio, STM32_GPIO_t* miso_gpio, STM32_G
         return false;
     
     if (tx_dma) {
-        if (!tx_dma->setup(tx_dmas, DMA_t::MEMORY, DMA_t::PERIPHERAL, DMA_t::ALIGN_16_BIT, DMA_t::LINEAR, DMA_t::MEDIUM)) {
+        if (!tx_dma->init(tx_dmas, DMA_t::MEMORY, DMA_t::PERIPHERAL, DMA_t::ALIGN_16_BIT, DMA_t::LINEAR, DMA_t::MEDIUM)) {
             return false;
         }
         tx_dma->link(hspi, &SPI_HandleTypeDef::hdmatx);
     }
 
     if (rx_dma) {
-        if (!rx_dma->setup(rx_dmas, DMA_t::PERIPHERAL, DMA_t::MEMORY, DMA_t::ALIGN_16_BIT, DMA_t::LINEAR, DMA_t::MEDIUM)) {
+        if (!rx_dma->init(rx_dmas, DMA_t::PERIPHERAL, DMA_t::MEMORY, DMA_t::ALIGN_16_BIT, DMA_t::LINEAR, DMA_t::MEDIUM)) {
             return false;
         }
         rx_dma->link(hspi, &SPI_HandleTypeDef::hdmarx);

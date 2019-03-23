@@ -4,7 +4,7 @@
 const float adc_full_scale = (float)(1 << 12);
 const float adc_ref_voltage = 3.3f;
 
-bool STM32_ADC_t::setup() {
+bool STM32_ADC_t::init() {
     if (is_setup_) {
         return true;
     }
@@ -38,21 +38,21 @@ bool STM32_ADC_t::setup() {
     return true;
 }
 
-bool STM32_ADCInjected_t::setup(STM32_DMAStream_t* dma) {
-    if (!adc || !adc->setup()) {
+bool STM32_ADCInjected_t::init(STM32_DMAStream_t* dma) {
+    if (!adc || !adc->init()) {
         return false;
     }
     return !dma; // DMA not supported on injected sequence
 }
 
-bool STM32_ADCRegular_t::setup(STM32_DMAStream_t* dma) {
-    if (!adc || !adc->setup()) {
+bool STM32_ADCRegular_t::init(STM32_DMAStream_t* dma) {
+    if (!adc || !adc->init()) {
         return false;
     }
     
     if (dma) {
         dma_ = dma;
-        if (!dma->setup(adc->dmas, DMA_t::PERIPHERAL, DMA_t::MEMORY, DMA_t::ALIGN_16_BIT, DMA_t::CIRCULAR, DMA_t::LOW)) {
+        if (!dma->init(adc->dmas, DMA_t::PERIPHERAL, DMA_t::MEMORY, DMA_t::ALIGN_16_BIT, DMA_t::CIRCULAR, DMA_t::LOW)) {
             return false;
         }
         dma->link(adc->hadc, &ADC_HandleTypeDef::DMA_Handle);

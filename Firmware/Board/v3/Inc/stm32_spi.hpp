@@ -38,7 +38,7 @@ public:
             return (IRQn_Type)-1;
     }
 
-    bool setup(STM32_GPIO_t* sck_gpio, STM32_GPIO_t* miso_gpio, STM32_GPIO_t* mosi_gpio, STM32_DMAStream_t* tx_dma, STM32_DMAStream_t* rx_dma);
+    bool init(STM32_GPIO_t* sck_gpio, STM32_GPIO_t* miso_gpio, STM32_GPIO_t* mosi_gpio, STM32_DMAStream_t* tx_dma, STM32_DMAStream_t* rx_dma);
 };
 
 extern STM32_SPI_t spi1, spi2, spi3;

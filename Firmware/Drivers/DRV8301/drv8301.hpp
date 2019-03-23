@@ -29,7 +29,7 @@ public:
         } {
     }
     
-    bool setup() final;
+    bool init() final;
     bool check_fault();
     float set_gain(float requested_gain) final;
     float get_gain() final;
@@ -43,7 +43,7 @@ public:
     }
 
 private:
-    DRV_SPI_8301_Vars_t local_regs_; // Local view of DRV registers (initialized by setup())
+    DRV_SPI_8301_Vars_t local_regs_; // Local view of DRV registers (initialized by init())
     DRV8301_FaultType_e drv_fault_ = DRV8301_FaultType_NoFault;
 
     // Communication protocol definitions

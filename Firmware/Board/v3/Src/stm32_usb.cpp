@@ -86,7 +86,7 @@ uint8_t* USBD_UsrStrDescriptor(struct _USBD_HandleTypeDef *pdev, uint8_t index, 
     return NULL;
 }
 
-bool STM32_USB_t::setup(
+bool STM32_USB_t::init(
         uint16_t vid, uint16_t pid, uint16_t langid,
         const char* manufacturer_string, const char* product_string, const char* serial_string, const char* config_string, const char* interface_string, const char* native_interface_string,
         USBClass_t* device_class) {

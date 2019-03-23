@@ -24,7 +24,7 @@ public:
     /** @brief Triggered on a timer trigger interrupt */
     Subscriber<> on_trigger_;
 
-    /** @brief Triggered on a timer cc interrupt */
+    /** @brief Triggered on a timer cc interrupt (can be either input or output compare) */
     Subscriber<uint32_t, uint32_t> on_cc_;
 
     /** @brief Triggered on a timer break interrupt */
@@ -40,13 +40,41 @@ public:
         gpio_af(gpio_af)
     {}
 
-    bool setup(uint32_t period, MODE mode, uint32_t prescaler = 0, uint32_t repetition_counter = 0);
+    /**
+     * @brief Initializes the timer.
+     * This will generate an update event whether you want it or not, because... well... STM code.
+     */
+    bool init(uint32_t period, MODE mode, uint32_t prescaler = 0, uint32_t repetition_counter = 0);
+
+    /**
+     * @brief Configures PWM output on the specified channel.
+     * The actual output must then be enabled using enable_pwm().
+     * Call init() prior to calling this.
+     * 
+     * @param gpio_p: Specifies the pin to use for the positive output. NULL if
+     *        the negative output channel is not used.
+     *        Only a few pins are valid for each timer and channel. Refer to the
+     *        datasheet for details
+     * @param gpio_n: Specifies the pin to use for the negative output. NULL if
+     *        the negative output channel is not used.
+     *        Only a few pins are valid for each timer and channel. Refer to the
+     *        datasheet for details
+     * @param active_high_p: True if the positive output pin should be active high.
+     * @param active_high_n: True if the negative output pin should be active high.
+     */
     bool setup_pwm(uint32_t channel,
             STM32_GPIO_t* gpio_p, STM32_GPIO_t* gpio_n,
             bool active_high_p, bool active_high_n,
             uint32_t initial_val);
+
+    /**
+     * @brief Configures the dead-time generation for all PWM outputs of this
+     * timer.
+     */
     bool set_dead_time(uint32_t dead_time);
-    bool setup_output_compare();
+
+    bool config_encoder_mode(STM32_GPIO_t* gpio_ch1, STM32_GPIO_t* gpio_ch2);
+
     bool config_encoder_mode(GPIO_t* gpio_ch1, GPIO_t* gpio_ch2) {
         STM32_GPIO_t* stm32_gpio_ch1 = dynamic_cast<STM32_GPIO_t*>(gpio_ch1);
         STM32_GPIO_t* stm32_gpio_ch2 = dynamic_cast<STM32_GPIO_t*>(gpio_ch2);
@@ -56,13 +84,18 @@ public:
             return config_encoder_mode(stm32_gpio_ch1, stm32_gpio_ch2);
         }
     }
-    bool config_encoder_mode(STM32_GPIO_t* gpio_ch1, STM32_GPIO_t* gpio_ch2);
+
+    /**
+     * @brief Configures input compare on the specified channels
+     */
     bool config_input_compare_mode(STM32_GPIO_t* gpio_ch3, STM32_GPIO_t* gpio_ch4);
 
     /**
      * @brief Sets the freeze-on-debug setting of the timer.
      * @param freeze_on_dbg: If true, the timer will freeze when the device is
-     * halted by a debugger. If false, the timer will continue running.
+     * halted by a debugger. For timers with complementary outputs (TIM1 and TIM8),
+     * the outputs are also set to Hi-Z (see OCIdleState and OCNIdleState).
+     * If false, the timer will continue running.
      */
     bool set_freeze_on_dbg(bool freeze_on_dbg);
 
@@ -113,7 +146,6 @@ public:
         handle_trigger_irq();
         handle_cc_irq();
         handle_break_irq();
-        HAL_TIM_IRQHandler(&htim); // TODO: not sure if this is still required
     }
 };
 

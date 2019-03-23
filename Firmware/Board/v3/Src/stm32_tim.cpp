@@ -1,7 +1,7 @@
 
 #include "stm32_tim.hpp"
 
-bool STM32_Timer_t::setup(uint32_t period, MODE mode, uint32_t prescaler, uint32_t repetition_counter) {
+bool STM32_Timer_t::init(uint32_t period, MODE mode, uint32_t prescaler, uint32_t repetition_counter) {
     if (htim.Instance == TIM1)
         __HAL_RCC_TIM1_CLK_ENABLE();
     else if (htim.Instance == TIM2)
@@ -43,8 +43,39 @@ bool STM32_Timer_t::setup(uint32_t period, MODE mode, uint32_t prescaler, uint32
     htim.Init.Period = period;
     htim.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     htim.Init.RepetitionCounter = repetition_counter;
-    if (HAL_TIM_Base_Init(&htim) != HAL_OK)
+
+    // The following section is basically a copy of HAL_TIM_Base_Init because,
+    // dear STM, no I do NOT want an update event to be triggered in the middle
+    // of the setup process.
+
+    uint32_t tmpcr1 = 0U;
+    tmpcr1 = htim.Instance->CR1;
+    
+    if (IS_TIM_CC3_INSTANCE(htim.Instance) != RESET) {
+        tmpcr1 &= ~(TIM_CR1_DIR | TIM_CR1_CMS);
+        tmpcr1 |= htim.Init.CounterMode;
+    } else if (htim.Init.CounterMode != TIM_COUNTERMODE_UP) {
         return false;
+    }
+    
+    if (IS_TIM_CC1_INSTANCE(htim.Instance) != RESET) {
+        tmpcr1 &= ~TIM_CR1_CKD;
+        tmpcr1 |= (uint32_t)htim.Init.ClockDivision;
+    } else if (htim.Init.ClockDivision != 0) {
+        return false;
+    }
+
+    htim.Instance->CR1 = tmpcr1;
+
+    htim.Instance->ARR = (uint32_t)htim.Init.Period;
+    htim.Instance->PSC = (uint32_t)htim.Init.Prescaler;
+
+    if (IS_TIM_ADVANCED_INSTANCE(htim.Instance) != RESET) {
+        htim.Instance->RCR = htim.Init.RepetitionCounter;
+    } else if (htim.Init.RepetitionCounter != 0) {
+        return false;
+    }
+
 
     TIM_ClockConfigTypeDef sClockSourceConfig;
     sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
@@ -52,11 +83,13 @@ bool STM32_Timer_t::setup(uint32_t period, MODE mode, uint32_t prescaler, uint32
         return false;
 
     TIM_MasterConfigTypeDef sMasterConfig;
-    sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET; // tim1 and tim8 had this on TIM_TRGO_UPDATE
+    sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE; // tim1 and tim8 had this on TIM_TRGO_UPDATE
     sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
     if (HAL_TIMEx_MasterConfigSynchronization(&htim, &sMasterConfig) != HAL_OK)
         return false;
 
+    // make sure TIMx_ARR is buffered (synchronized to update event)
+    htim.Instance->CR1 |= TIM_CR1_ARPE;
 
     return true;
 }
@@ -66,8 +99,6 @@ bool STM32_Timer_t::setup_pwm(uint32_t channel_num,
         bool active_high_p, bool active_high_n,
         uint32_t initial_val) {
 
-    if (HAL_TIM_PWM_Init(&htim) != HAL_OK)
-        return false;
 
     uint32_t channel_val = 0;
     if (channel_num == 1)
@@ -247,18 +278,6 @@ bool STM32_Timer_t::set_dead_time(uint32_t dead_time) {
     return true;
 }
 
-bool STM32_Timer_t::setup_output_compare() {
-    if (HAL_TIM_OC_Init(&htim) != HAL_OK)
-        return false;
-
-    TIM_OC_InitTypeDef sConfigOC;
-    sConfigOC.OCMode = TIM_OCMODE_TIMING;
-    if (HAL_TIM_OC_ConfigChannel(&htim, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
-        return false;
-
-    return true;
-}
-
 bool STM32_Timer_t::config_encoder_mode(STM32_GPIO_t* gpio_ch1, STM32_GPIO_t* gpio_ch2) {
     // TODO: make more flexible
     TIM_Encoder_InitTypeDef sConfig;
@@ -291,9 +310,6 @@ bool STM32_Timer_t::config_input_compare_mode(STM32_GPIO_t* gpio_ch3, STM32_GPIO
     sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
     sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
     sConfigIC.ICFilter = 15;
-
-    if (HAL_TIM_IC_Init(&htim) != HAL_OK)
-        return false;
 
     if (gpio_ch3) {
         if (HAL_TIM_IC_ConfigChannel(&htim, &sConfigIC, TIM_CHANNEL_3) != HAL_OK)

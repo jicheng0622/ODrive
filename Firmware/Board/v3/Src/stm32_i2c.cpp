@@ -12,14 +12,14 @@ bool STM32_I2C_t::setup_as_slave(uint32_t freq, uint8_t addr, STM32_GPIO_t* scl_
         return false;
 
     if (tx_dma) {
-        if (!tx_dma->setup(tx_dmas, DMA_t::MEMORY, DMA_t::PERIPHERAL, DMA_t::ALIGN_8_BIT, DMA_t::LINEAR, DMA_t::LOW)) {
+        if (!tx_dma->init(tx_dmas, DMA_t::MEMORY, DMA_t::PERIPHERAL, DMA_t::ALIGN_8_BIT, DMA_t::LINEAR, DMA_t::LOW)) {
             return false;
         }
         tx_dma->link(hi2c, &I2C_HandleTypeDef::hdmatx);
     }
 
     if (rx_dma) {
-        if (!rx_dma->setup(rx_dmas, DMA_t::PERIPHERAL, DMA_t::MEMORY, DMA_t::ALIGN_8_BIT, DMA_t::CIRCULAR, DMA_t::LOW)) {
+        if (!rx_dma->init(rx_dmas, DMA_t::PERIPHERAL, DMA_t::MEMORY, DMA_t::ALIGN_8_BIT, DMA_t::CIRCULAR, DMA_t::LOW)) {
             return false;
         }
         rx_dma->link(hi2c, &I2C_HandleTypeDef::hdmarx);

@@ -18,7 +18,7 @@ public:
 
     explicit TrapezoidalTrajectory(Config_t& config) : config_(config) { }
 
-    bool setup() { return true; }
+    bool init() { return true; }
 
     bool planTrapezoidal(float Xf, float Xi, float Vi,
                          float Vmax, float Amax, float Dmax);

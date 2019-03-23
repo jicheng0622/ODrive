@@ -25,7 +25,7 @@ bool STM32_GPIO_t::enable_clock() {
     return true;    
 }
 
-bool STM32_GPIO_t::setup(MODE mode, PULL pull, bool state) {
+bool STM32_GPIO_t::init(MODE mode, PULL pull, bool state) {
     if (!enable_clock()) {
         return false;
     }

@@ -8,6 +8,7 @@
 // the forward declarations and right ordering
 // btw this pattern is not so uncommon, for instance IIRC the stdlib uses it too
 
+
 #ifdef __cplusplus
 #include <fibre/protocol.hpp>
 extern "C" {
@@ -16,9 +17,8 @@ extern "C" {
 #include <stdbool.h>
 
 // STM specific includes
+#include "stm32_system.h"
 #include <stm32f4xx_hal.h>  // Sets up the correct chip specifc defines required by arm_math
-//#include <can.h>
-//#include <i2c.h>
 #define ARM_MATH_CM4 // TODO: might change in future board versions
 #include <arm_math.h>
 
@@ -30,28 +30,11 @@ extern "C" {
 //default timeout waiting for phase measurement signals
 #define PH_CURRENT_MEAS_TIMEOUT 2 // [ms]
 
-
-// TODO: make dynamic
-#define TIM_1_8_CLOCK_HZ 168000000
-#define TIM_1_8_PERIOD_CLOCKS 3500
-#define TIM_1_8_DEADTIME_CLOCKS 20
+// TODO: move to board definition file
 #define TIM_APB1_CLOCK_HZ 84000000
 #define TIM_APB1_PERIOD_CLOCKS 4096
 #define TIM_APB1_DEADTIME_CLOCKS 40
-#define TIM_1_8_RCR 2
 
-#define CURRENT_MEAS_PERIOD ( (float)2*TIM_1_8_PERIOD_CLOCKS*(TIM_1_8_RCR+1) / (float)TIM_1_8_CLOCK_HZ )
-#define CURRENT_MEAS_HZ ( (float)(TIM_1_8_CLOCK_HZ) / (float)(2*TIM_1_8_PERIOD_CLOCKS*(TIM_1_8_RCR+1)) )
-
-//TODO clean this up
-static const float current_meas_period = CURRENT_MEAS_PERIOD;
-static const int current_meas_hz = CURRENT_MEAS_HZ;
-// extern const float elec_rad_per_enc;
-extern uint32_t _reboot_cookie;
-extern bool user_config_loaded_;
-extern uint64_t serial_number;
-//extern uint64_t serial_number;
-//extern char serial_number_str[13];
 
 typedef struct {
     bool fully_booted;
@@ -149,6 +132,7 @@ inline ENUMTYPE operator ~ (ENUMTYPE a) { return static_cast<ENUMTYPE>(~static_c
 
 
 // ODrive specific includes
+
 #include <utils.h>
 #include <low_level.h>
 #include <encoder.hpp>
@@ -158,6 +142,12 @@ inline ENUMTYPE operator ~ (ENUMTYPE a) { return static_cast<ENUMTYPE>(~static_c
 #include <trapTraj.hpp>
 #include <axis.hpp>
 #include <communication/communication.h>
+
+//TODO clean this up
+extern const float current_meas_period;
+extern const int current_meas_hz;
+extern bool user_config_loaded_;
+extern uint64_t serial_number;
 
 #endif // __cplusplus
 

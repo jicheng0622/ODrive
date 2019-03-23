@@ -53,7 +53,7 @@ public:
     */
     uint8_t find_in_list(const STM32_DMAChannel_t* channel_list);
 
-    bool setup(const STM32_DMAChannel_t* channels, DOMAIN src, DOMAIN dst, ALIGNMENT alignment, MODE mode, PRIORITY priority);
+    bool init(const STM32_DMAChannel_t* channels, DOMAIN src, DOMAIN dst, ALIGNMENT alignment, MODE mode, PRIORITY priority);
 
     template<typename T>
     void link(T& owner, DMA_HandleTypeDef* T::*field) {

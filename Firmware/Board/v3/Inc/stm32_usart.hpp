@@ -46,7 +46,7 @@ public:
             return (IRQn_Type)-1;
     }
 
-    bool setup(uint32_t baudrate, STM32_GPIO_t* tx_gpio, STM32_GPIO_t* rx_gpio, STM32_DMAStream_t* tx_dma, STM32_DMAStream_t* rx_dma);
+    bool init(uint32_t baudrate, STM32_GPIO_t* tx_gpio, STM32_GPIO_t* rx_gpio, STM32_DMAStream_t* tx_dma, STM32_DMAStream_t* rx_dma);
     bool start_rx(uint8_t* data, size_t length);
     bool stop_rx();
     bool check_error();

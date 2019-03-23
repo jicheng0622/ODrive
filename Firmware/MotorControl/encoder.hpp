@@ -52,7 +52,7 @@ public:
             STM32_ADCChannel_t* adc_sincos_s, STM32_ADCChannel_t* adc_sincos_c,
             Config_t& config);
 
-    bool setup();
+    bool init();
     void set_error(Error_t error);
     bool do_checks();
 

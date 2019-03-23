@@ -153,7 +153,7 @@ bool freertos_init(STM32_Timer_t* system_timer, main_task_t main_task) {
     + ClockDivision = 0
     + Counter direction = Up
     */
-    tim14.setup(
+    tim14.init(
         (1000000 / 1000) - 1,
         STM32_Timer_t::UP,
         uwPrescalerValue

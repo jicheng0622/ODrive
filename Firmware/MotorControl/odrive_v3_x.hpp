@@ -1,8 +1,19 @@
-
+#ifndef __BOARD_HPP
+#define __BOARD_HPP
 
 #if HW_VERSION_MAJOR != 3
 #  error "This file is only for use with ODrive V3.x"
 #endif
+
+#include "stm32_system.h"
+#include "stm32_adc.hpp"
+#include "stm32_can.hpp"
+#include "stm32_dma.hpp"
+#include "stm32_i2c.hpp"
+#include "stm32_tim.hpp"
+#include "stm32_usart.hpp"
+#include "drv8301.hpp"
+
 
 struct PerChannelConfig_t {
     Motor::Config_t motor_config;
@@ -37,11 +48,22 @@ const size_t thermistor_num_coeffs = sizeof(thermistor_poly_coeffs)/sizeof(therm
 #  error "unknown board voltage"
 #endif
 
+// TODO: make dynamic
+#define TIM_1_8_CLOCK_HZ 168000000
+#define TIM_1_8_PERIOD_CLOCKS 3500
+#define TIM_1_8_DEADTIME_CLOCKS 20
+#define TIM_1_8_RCR 2
+
+#define CURRENT_MEAS_PERIOD ( (float)2*TIM_1_8_PERIOD_CLOCKS*(TIM_1_8_RCR+1) / (float)TIM_1_8_CLOCK_HZ )
+#define CURRENT_MEAS_HZ ( (float)(TIM_1_8_CLOCK_HZ) / (float)(2*TIM_1_8_PERIOD_CLOCKS*(TIM_1_8_RCR+1)) )
+
+
+
 
 #if HW_VERSION_MINOR <= 2
-STM32_ADCChannel_t adc_vbus_sense = adc1_regular.get_channel(&pa0);
+STM32_ADCChannel_t adc_vbus_sense = adc1_injected.get_channel(&pa0);
 #else
-STM32_ADCChannel_t adc_vbus_sense = adc1_regular.get_channel(&pa6);
+STM32_ADCChannel_t adc_vbus_sense = adc1_injected.get_channel(&pa6);
 #endif
 VoltageDivider_t vbus_sense(&adc_vbus_sense, VBUS_S_DIVIDER_RATIO);
 
@@ -130,7 +152,7 @@ STM32_ADCChannel_t adc_aux_temp = adc1_regular.get_channel(&pc4);
 
 const size_t n_axes = AXIS_COUNT;
 
-static bool board_init(Axis axes[AXIS_COUNT]) {
+static inline bool board_init(Axis axes[AXIS_COUNT]) {
     new (&axes[0]) Axis(
         Motor(
             &tim1,
@@ -143,6 +165,7 @@ static bool board_init(Axis axes[AXIS_COUNT]) {
             &current_sensor_m0_b, // current_sensor_b
             &current_sensor_m0_c, // current_sensor_c
             &temp_sensor_m0_inv, // inverter_thermistor
+            TIM_1_8_PERIOD_CLOCKS, TIM_1_8_RCR, TIM_1_8_DEADTIME_CLOCKS,
             axis_configs[0].motor_config
         ),
         Encoder(
@@ -181,6 +204,7 @@ static bool board_init(Axis axes[AXIS_COUNT]) {
             &current_sensor_m1_b, // current_sensor_b
             &current_sensor_m1_c, // current_sensor_c
             &temp_sensor_m1_inv, // inverter_thermistor
+            TIM_1_8_PERIOD_CLOCKS, TIM_1_8_RCR, TIM_1_8_DEADTIME_CLOCKS,
             axis_configs[1].motor_config
         ),
         Encoder(
@@ -237,4 +261,4 @@ STM32_USBRxEndpoint_t odrive_rx_endpoint(&usb.hUsbDeviceFS, 0x03); /* EP3 OUT: O
 
 STM32_USART_t* comm_uart = &uart4;
 
-
+#endif // __BOARD_HPP

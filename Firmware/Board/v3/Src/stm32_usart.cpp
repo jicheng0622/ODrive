@@ -1,7 +1,7 @@
 
 #include "stm32_usart.hpp"
 
-bool STM32_USART_t::setup(uint32_t baudrate, STM32_GPIO_t* tx_gpio, STM32_GPIO_t* rx_gpio, STM32_DMAStream_t* tx_dma, STM32_DMAStream_t* rx_dma) {
+bool STM32_USART_t::init(uint32_t baudrate, STM32_GPIO_t* tx_gpio, STM32_GPIO_t* rx_gpio, STM32_DMAStream_t* tx_dma, STM32_DMAStream_t* rx_dma) {
     if (huart.Instance == USART1)
         __HAL_RCC_USART1_CLK_ENABLE();
     else if (huart.Instance == USART2)
@@ -18,14 +18,14 @@ bool STM32_USART_t::setup(uint32_t baudrate, STM32_GPIO_t* tx_gpio, STM32_GPIO_t
         return false;
     
     if (tx_dma) {
-        if (!tx_dma->setup(tx_dmas, DMA_t::MEMORY, DMA_t::PERIPHERAL, DMA_t::ALIGN_8_BIT, DMA_t::LINEAR, DMA_t::LOW)) {
+        if (!tx_dma->init(tx_dmas, DMA_t::MEMORY, DMA_t::PERIPHERAL, DMA_t::ALIGN_8_BIT, DMA_t::LINEAR, DMA_t::LOW)) {
             return false;
         }
         tx_dma->link(huart, &UART_HandleTypeDef::hdmatx);
     }
 
     if (rx_dma) {
-        if (!rx_dma->setup(rx_dmas, DMA_t::PERIPHERAL, DMA_t::MEMORY, DMA_t::ALIGN_8_BIT, DMA_t::CIRCULAR, DMA_t::LOW)) {
+        if (!rx_dma->init(rx_dmas, DMA_t::PERIPHERAL, DMA_t::MEMORY, DMA_t::ALIGN_8_BIT, DMA_t::CIRCULAR, DMA_t::LOW)) {
             return false;
         }
         rx_dma->link(huart, &UART_HandleTypeDef::hdmarx);

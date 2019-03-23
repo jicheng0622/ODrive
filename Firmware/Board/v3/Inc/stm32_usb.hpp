@@ -147,10 +147,10 @@ public:
     
     __ALIGN_BEGIN uint8_t str_buffer[USBD_MAX_STR_DESC_SIZ] __ALIGN_END;
 
-    // USB standard device descriptor (assigned in setup())
+    // USB standard device descriptor (assigned in init())
     __ALIGN_BEGIN uint8_t device_descriptor_[USB_LEN_DEV_DESC] __ALIGN_END;
 
-    // USB lang indentifier descriptor (assigned in setup())
+    // USB lang indentifier descriptor (assigned in init())
     __ALIGN_BEGIN uint8_t langid_descriptor_[USB_LEN_LANGID_STR_DESC] __ALIGN_END;
 
     // MS OS String descriptor to tell Windows that it may query for other descriptors
@@ -186,7 +186,7 @@ public:
 
     STM32_USB_t() {}
 
-    bool setup(
+    bool init(
         uint16_t vid, uint16_t pid, uint16_t langid,
         const char* manufacturer_string, const char* product_string, const char* serial_string, const char* config_string, const char* interface_string, const char* native_interface_string,
         USBClass_t* device_class);

@@ -120,7 +120,7 @@ bool safety_critical_disarm_motor_pwm(Motor& motor) {
 // the actual PMW timings on the pins can be undefined for up to one
 // timer period.
 // TODO: update this and the description
-void safety_critical_apply_motor_pwm_timings(Motor& motor, uint16_t timings[3]) {
+void safety_critical_apply_motor_pwm_timings(Motor& motor, uint16_t period, uint16_t timings[3]) {
     uint32_t mask = cpu_enter_critical();
     if (!brake_resistor_armed) {
         motor.armed_state_ = Motor::ARMED_STATE_DISARMED;
@@ -130,6 +130,8 @@ void safety_critical_apply_motor_pwm_timings(Motor& motor, uint16_t timings[3]) 
     motor.timer_->htim.Instance->CCR1 = timings[0];
     motor.timer_->htim.Instance->CCR2 = timings[1];
     motor.timer_->htim.Instance->CCR3 = timings[2];
+    motor.timer_->htim.Instance->ARR = period;
+    motor.pwm_control_deadline_ = period - 1;
     motor.is_updating_pwm_timings_ = false;
 
     if (motor.armed_state_ == Motor::ARMED_STATE_WAITING_FOR_TIMINGS) {

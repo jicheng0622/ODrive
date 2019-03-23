@@ -6,11 +6,11 @@ public:
     Thermistor_t(ADCChannel_t* adc, const float* coeffs, size_t n_coeffs) :
         adc_(adc), coeffs_(coeffs), n_coeffs_(n_coeffs) {}
 
-    bool setup() {
+    bool init() {
         if (!adc_)
             return false;
 
-        // TODO: ensure ADC is setup (currently done in main.cpp)
+        // TODO: ensure ADC is initialized (currently done in main.cpp)
 
         return true;
     }
