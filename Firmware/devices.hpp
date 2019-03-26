@@ -4,29 +4,29 @@
 #include "subscriber.hpp"
 
 struct ADCChannel_t {
-    /*
-    * @brief Initializes the ADC hardware.
-    * Must be callable multiple times.
-    */
-    virtual bool setup() = 0;
+    /**
+     * @brief Initializes the ADC hardware.
+     * Must be callable multiple times.
+     */
+    virtual bool init() = 0;
 
-    /*
-    * @brief Fetches the latest reading in volts.
-    * Returns true if the value could be obtained or false otherwise.
-    */
+    /**
+     * @brief Fetches the latest reading in volts.
+     * Returns true if the value could be obtained or false otherwise.
+     */
     virtual bool get_voltage(float *value) = 0;
 
-    /*
-    * @brief Fetches the latest reading as a number in {0...1}.
-    * Returns true if the value could be obtained or false otherwise.
-    */
+    /**
+     * @brief Fetches the latest reading as a number in {0...1}.
+     * Returns true if the value could be obtained or false otherwise.
+     */
     virtual bool get_normalized(float *value) = 0;
 
-    /*
-    * @brief Enables the update event on this ADC channel.
-    * The underlying ADC must be configured beforehand, i.e. with a timer as
-    * trigger or in continuous mode.
-    */
+    /**
+     * @brief Enables the update event on this ADC channel.
+     * The underlying ADC must be configured beforehand, i.e. with a timer as
+     * trigger or in continuous mode.
+     */
     virtual bool enable_updates() = 0;
 
     Subscriber<> on_update_;
@@ -38,10 +38,10 @@ public:
         adc_(adc),
         divider_ratio_(divider_ratio) {}
 
-    bool setup() final {
+    bool init() final {
         return adc_
             && adc_->on_update_.set<VoltageDivider_t, &VoltageDivider_t::handle_update>(*this)
-            && adc_->setup();
+            && adc_->init();
     }
 
     bool get_voltage(float *value) final {
@@ -81,52 +81,56 @@ private:
 };
 
 struct SPI_t {
-    /*
-    * @brief Initializes the SPI peripheral.
-    * Must be callable multiple times.
-    */
-    bool setup();
+    /**
+     * @brief Initializes the SPI peripheral.
+     * Must be callable multiple times.
+     */
+    bool init();
 };
 
 struct GateDriver_t {
-    /*
-    * @brief Initializes the gate driver hardware.
-    * Must be callable multiple times.
-    */
-    virtual bool setup() = 0;
+    /**
+     * @brief Initializes the gate driver hardware.
+     * Must be callable multiple times.
+     */
+    virtual bool init() = 0;
 
-    /*
-    * @brief Checks for a fault condition. Returns false if the driver is in a
-    * fault state and true if it is in an nominal state.
-    */
+    /**
+     * @brief Checks for a fault condition. Returns false if the driver is in a
+     * fault state and true if it is in an nominal state.
+     */
     virtual bool check_fault() = 0;
+
+    /**
+     * @brief Returns the error code of the gate driver.
+     */
+    virtual uint32_t get_error() = 0;
 };
 
 
 struct CurrentSensor_t {
-    /*
-    * @brief Initializes the current sensor hardware.
-    * Must be callable multiple times.
-    */
-    virtual bool setup(float requested_range) = 0;
+    /**
+     * @brief Initializes the current sensor hardware.
+     * Must be callable multiple times.
+     */
+    virtual bool init(float requested_range) = 0;
 
     /**
      * @brief Enables the update event of this current sensor.
      * The on_update_ event should be configured first. The update trigger
      * source depends on the type of the current sensor and on the setup of the
      * underlying ADC channel.
-     * Returns true if the event was enabled successfully or false otherwise
-     * (e.g. if the current sensor does not implement the update event)
+     * Returns true if the event was enabled successfully or false otherwise.
      */
     virtual bool enable_updates() = 0;
 
-    /*
-    * @brief Tries to set the range of the current sensor to at least
-    * {-requested_range, ..., requested_range}.
-    * The actual range that is set may be smaller or larger than the requested
-    * range. Use get_range() to get the actual range.
+    /**
+     * @brief Tries to set the range of the current sensor to at least
+     * {-requested_range, ..., requested_range}.
+     * The actual range that is set may be smaller or larger than the requested
+     * range. Use get_range() to get the actual range.
      * Returns true if the range was updated or false otherwise.
-    */
+     */
     virtual bool set_range(float requested_range) = 0;
 
     /**
@@ -156,21 +160,21 @@ struct CurrentSensor_t {
 };
 
 struct OpAmp_t {
-    /*
-    * @brief Initializes the opamp hardware.
-    * Must be callable multiple times.
-    */
-    virtual bool setup() = 0;
+    /**
+     * @brief Initializes the opamp hardware.
+     * Must be callable multiple times.
+     */
+    virtual bool init() = 0;
 
-    /*
-    * @brief Tries to set the OpAmp gain to the specified value or lower.
-    * Returns the actual gain that was set.
-    */
+    /**
+     * @brief Tries to set the OpAmp gain to the specified value or lower.
+     * Returns the actual gain that was set.
+     */
     virtual float set_gain(float max_gain) = 0;
 
-    /*
-    * @brief Returns the current gain setting
-    */
+    /**
+     * @brief Returns the current gain setting
+     */
     virtual float get_gain() = 0;
 
     /**
@@ -189,10 +193,10 @@ public:
     Shunt_t(ADCChannel_t* adc, OpAmp_t* opamp_, float conductance) :
         adc_(adc), opamp_(opamp_), conductance_(conductance) {}
 
-    bool setup(float requested_range) final {
+    bool init(float requested_range) final {
         if (!is_setup_) {
-            if (!(adc_->setup()
-                && opamp_->setup()
+            if (!(adc_ && adc_->init()
+                && opamp_ && opamp_->init()
                 && set_range(requested_range)
                 && adc_->on_update_.set<Shunt_t, &Shunt_t::handle_update>(*this))) {
                 return false;
@@ -286,56 +290,6 @@ private:
     //        make_protocol_property("rev_gain", &rev_gain_)
     //    );
     //}
-};
-
-#include <array>
-
-template<size_t N>
-class DerivedCurrentSensor_t : public CurrentSensor_t {
-public:
-    std::array<CurrentSensor_t*, N> other_current_sensors;
-
-    DerivedCurrentSensor_t(std::array<CurrentSensor_t*, N> other_current_sensors) :
-        other_current_sensors(other_current_sensors) {}
-
-    bool setup(float requested_range) {
-        return true;
-    }
-
-    bool enable_updates() final {
-        return false;
-    }
-
-    bool set_range(float requested_range) final {
-        return true;
-    }
-
-    bool get_range(float* max_range) final {
-        // TODO: this is a bit arbitrary to just query the first sensor
-        return other_current_sensors[0]->get_range(max_range);
-    }
-
-    bool has_value() final {
-        return true; // this current sensor calculates values on-demand
-    }
-
-    bool get_current(float* current) final {
-        bool result = true;
-        float total_val = 0;
-        for (size_t i = 0; i < N; ++i) {
-            float val = 0.0f;
-            result = result && other_current_sensors[i]->get_current(&val);
-            total_val -= val;
-        }
-        if (current) {
-            *current = total_val;
-        }
-        return current;
-    }
-
-    bool consume_value(float* current) {
-        return get_current(current);
-    }
 };
 
 

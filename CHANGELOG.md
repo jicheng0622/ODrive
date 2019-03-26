@@ -3,6 +3,15 @@ Please add a note of your changes below this heading if you make a Pull Request.
 
 ### Added
 * Communication watchdog feature.
+* Replace CubeMX generated files with cleaner C++ implementations and make the hardware tree easily modifiable
+* Add support for three current sensors per phase
+* Simplify the arming state machine by using the `AOE` bit
+* Use timer update ISR to monitor PWM update deadline, move PWM update directly to control loop
+* Use separate threads for the two USB interfaces (CDC and ODrive vendor specific)
+* Use DMA for all three regular ADC sequences
+* Change ADC1 regular sequence (used for everything that is not current or VBUS measurement) from being continuous to being synchronized to TIM8
+* Disable brake resistor
+* Move Ialpha, Ibeta calculation into current measurement ISR
 
 # Releases
 ## [0.4.8] - 2019-02-25

@@ -70,7 +70,7 @@ PCD_HandleTypeDef hpcd_USB_OTG_FS;
 void _Error_Handler(char * file, int line);
 
 /* External functions --------------------------------------------------------*/
-void SystemClock_Config(void);
+uint8_t system_clock_config(void);
 
 /* USER CODE BEGIN 0 */
 /* USER CODE END 0 */
@@ -765,7 +765,7 @@ void HAL_PCDEx_LPM_Callback(PCD_HandleTypeDef *hpcd, PCD_LPM_MsgTypeDef msg)
   case PCD_LPM_L0_ACTIVE:
     if (hpcd->Init.low_power_enable)
     {
-      SystemClock_Config();
+      system_clock_config();
       
       /* Reset SLEEPDEEP bit of Cortex System Control Register. */
       SCB->SCR &= (uint32_t)~((uint32_t)(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk));

@@ -53,11 +53,7 @@ void early_start_checks(void) {
   }
 }
 
-
-bool system_init(void) {
-    // Reset of all peripherals, Initializes the Flash interface and the Systick.
-    HAL_Init();
-
+bool system_clock_config(void) {
     RCC_OscInitTypeDef RCC_OscInitStruct;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
@@ -101,6 +97,34 @@ bool system_init(void) {
     return true;
 }
 
+bool system_init(void) {
+    // Reset of all peripherals, Initializes the Flash interface and the Systick.
+    HAL_Init();
+
+    __HAL_RCC_SYSCFG_CLK_ENABLE();
+    __HAL_RCC_PWR_CLK_ENABLE();
+
+    HAL_NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
+
+    /* System interrupt init*/
+    /* MemoryManagement_IRQn interrupt configuration */
+    HAL_NVIC_SetPriority(MemoryManagement_IRQn, 0, 0);
+    /* BusFault_IRQn interrupt configuration */
+    HAL_NVIC_SetPriority(BusFault_IRQn, 0, 0);
+    /* UsageFault_IRQn interrupt configuration */
+    HAL_NVIC_SetPriority(UsageFault_IRQn, 0, 0);
+    /* SVCall_IRQn interrupt configuration */
+    HAL_NVIC_SetPriority(SVCall_IRQn, 0, 0);
+    /* DebugMonitor_IRQn interrupt configuration */
+    HAL_NVIC_SetPriority(DebugMonitor_IRQn, 0, 0);
+    /* PendSV_IRQn interrupt configuration */
+    HAL_NVIC_SetPriority(PendSV_IRQn, 15, 0);
+    /* SysTick_IRQn interrupt configuration */
+    HAL_NVIC_SetPriority(SysTick_IRQn, 15, 0);
+
+    return system_clock_config();
+}
+
 /**
   * @brief  This function is executed in case of error occurrence.
   * @param  file: The file name as string.
@@ -128,3 +152,90 @@ void assert_failed(uint8_t* file, uint32_t line) {
       ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
 }
 #endif /* USE_FULL_ASSERT */
+
+
+/* Cortex-M4 Processor Exception Handlers ------------------------------------*/
+
+void get_regs(void** stack_ptr) {
+    void* volatile r0 __attribute__((unused)) = stack_ptr[0];
+    void* volatile r1 __attribute__((unused)) = stack_ptr[1];
+    void* volatile r2 __attribute__((unused)) = stack_ptr[2];
+    void* volatile r3 __attribute__((unused)) = stack_ptr[3];
+
+    void* volatile r12 __attribute__((unused)) = stack_ptr[4];
+    void* volatile lr __attribute__((unused)) = stack_ptr[5];  // Link register
+    void* volatile pc __attribute__((unused)) = stack_ptr[6];  // Program counter
+    void* volatile psr __attribute__((unused)) = stack_ptr[7];  // Program status register
+
+    volatile bool stay_looping = true;
+    while(stay_looping);
+}
+
+/** @brief Entrypoint for Non maskable interrupt. */
+void NMI_Handler(void) {
+    // TODO: add handler
+}
+
+/** @brief Entrypoint for Hard fault interrupt. */
+__attribute__((naked))
+void HardFault_Handler(void) {
+    __asm(
+        " tst lr, #4     \n\t"
+        " ite eq         \n\t"
+        " mrseq r0, msp  \n\t"
+        " mrsne r0, psp  \n\t"
+        " b get_regs     \n\t"
+    );
+}
+
+/** @brief Entrypoint for Memory management fault. */
+void MemManage_Handler(void) {
+    __asm( // TODO: not sure if this is a valid action in this situation
+        " tst lr, #4     \n\t"
+        " ite eq         \n\t"
+        " mrseq r0, msp  \n\t"
+        " mrsne r0, psp  \n\t"
+        " b get_regs     \n\t"
+    );
+    while (1) {
+        // TODO: add proper handling
+    }
+}
+
+/** @brief Entrypoint for Pre-fetch fault, memory access fault. */
+void BusFault_Handler(void) {
+    __asm( // TODO: not sure if this is a valid action in this situation
+        " tst lr, #4     \n\t"
+        " ite eq         \n\t"
+        " mrseq r0, msp  \n\t"
+        " mrsne r0, psp  \n\t"
+        " b get_regs     \n\t"
+    );
+    while (1) {
+        // TODO: add proper handling
+    }
+}
+
+/** @brief Entrypoint for Undefined instruction or illegal state. */
+void UsageFault_Handler(void) {
+    __asm( // TODO: not sure if this is a valid action in this situation
+        " tst lr, #4     \n\t"
+        " ite eq         \n\t"
+        " mrseq r0, msp  \n\t"
+        " mrsne r0, psp  \n\t"
+        " b get_regs     \n\t"
+    );
+    while (1) {
+        // TODO: add proper handling
+    }
+}
+
+/** @brief Entrypoint for Debug monitor. */
+void DebugMon_Handler(void) {
+    // TODO: add debug support code (allows adding breakpoints while the CPU is running)
+}
+
+/** @brief Entrypoint for System tick timer. */
+void SysTick_Handler(void) {
+    osSystickHandler();
+}
