@@ -191,7 +191,7 @@ build{
         'MotorControl/sensorless_estimator.cpp',
         'MotorControl/trapTraj.cpp',
         'communication/communication.cpp',
---        'communication/ascii_protocol.cpp',
+        'communication/ascii_protocol.cpp',
         'communication/interface_uart.cpp',
         'communication/interface_usb.cpp',
 --        'communication/interface_can.cpp',

@@ -152,7 +152,9 @@ inline ENUMTYPE operator ~ (ENUMTYPE a) { return static_cast<ENUMTYPE>(~static_c
 extern const float current_meas_period;
 extern const int current_meas_hz;
 extern bool user_config_loaded_;
+
 extern uint64_t serial_number;
+extern char serial_number_str[13];
 
 #endif // __cplusplus
 

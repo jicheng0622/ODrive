@@ -48,6 +48,9 @@ const float current_meas_period = CURRENT_MEAS_PERIOD;
 const int current_meas_hz = (int)(CURRENT_MEAS_HZ);
 SystemStats_t system_stats_ = { 0 };
 
+uint64_t serial_number = 0;
+char serial_number_str[13]; // 12 digits + null termination
+
 // This value is updated by the DC-bus reading ADC.
 // Arbitrary non-zero inital value to avoid division by zero if ADC reading is late
 float vbus_voltage = 12.0f;
@@ -197,7 +200,7 @@ int main(void) {
     for (;;);
 }
 
-uint64_t serial_number = 0;
+
 int main_task(void) {
     // This procedure of building a USB serial number should be identical
     // to the way the STM's built-in USB bootloader does it. This means
@@ -208,7 +211,6 @@ int main_task(void) {
     uint32_t uuid_mixed_part = uuid0 + uuid2;
     serial_number = ((uint64_t)uuid_mixed_part << 16) | (uint64_t)(uuid1 >> 16);
 
-    char serial_number_str[13]; // 12 digits + null termination
     uint64_t val = serial_number;
     for (size_t i = 0; i < 12; ++i) {
         serial_number_str[i] = "0123456789ABCDEF"[(val >> (48-4)) & 0xf];
