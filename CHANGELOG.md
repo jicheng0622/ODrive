@@ -12,6 +12,8 @@ Please add a note of your changes below this heading if you make a Pull Request.
 * Change ADC1 regular sequence (used for everything that is not current or VBUS measurement) from being continuous to being synchronized to TIM8
 * Disable brake resistor
 * Move Ialpha, Ibeta calculation into current measurement ISR
+* Add open loop frequency mode
+* Add PWM/ADC test mode
 
 # Releases
 ## [0.4.8] - 2019-02-25
