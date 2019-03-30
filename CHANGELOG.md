@@ -14,6 +14,9 @@ Please add a note of your changes below this heading if you make a Pull Request.
 * Move Ialpha, Ibeta calculation into current measurement ISR
 * Add open loop frequency mode
 * Add PWM/ADC test mode
+* Define interrupt priorities in a central place
+* Change TIM14 monotonic clock from using a maximum priority interrupt every 1ms to a minimum priority interrupt every 25ms
+* Disable ADC interrupts and instead read values directly in the timer update ISR (20% CPU per timer for the ISRs @ 8kHz update frequency).
 
 # Releases
 ## [0.4.8] - 2019-02-25
