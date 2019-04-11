@@ -211,7 +211,7 @@ bool Encoder::run_offset_calibration() {
     axis_->run_control_loop([&](){
         if (!axis_->motor_.enqueue_voltage_timings(voltage_magnitude, 0.0f))
             return false; // error set inside enqueue_voltage_timings
-        //axis_->motor_.log_timing(Motor::TIMING_LOG_ENC_CALIB);
+        axis_->motor_.log_timing(Motor::TIMING_LOG_ENC_CALIB);
         return ++i < start_lock_duration * current_meas_hz;
     });
     if (axis_->error_ != Axis::ERROR_NONE)
@@ -228,7 +228,7 @@ bool Encoder::run_offset_calibration() {
         float v_beta = voltage_magnitude * our_arm_sin_f32(phase);
         if (!axis_->motor_.enqueue_voltage_timings(v_alpha, v_beta))
             return false; // error set inside enqueue_voltage_timings
-        //axis_->motor_.log_timing(Motor::TIMING_LOG_ENC_CALIB);
+        axis_->motor_.log_timing(Motor::TIMING_LOG_ENC_CALIB);
 
         encvaluesum += shadow_count_;
         
@@ -269,7 +269,7 @@ bool Encoder::run_offset_calibration() {
         float v_beta = voltage_magnitude * our_arm_sin_f32(phase);
         if (!axis_->motor_.enqueue_voltage_timings(v_alpha, v_beta))
             return false; // error set inside enqueue_voltage_timings
-        //axis_->motor_.log_timing(Motor::TIMING_LOG_ENC_CALIB);
+        axis_->motor_.log_timing(Motor::TIMING_LOG_ENC_CALIB);
 
         encvaluesum += shadow_count_;
         
