@@ -54,7 +54,6 @@ public:
 
     bool init();
     void set_error(Error_t error);
-    bool do_checks();
 
     void enc_index_cb();
     void set_idx_subscribe(bool override_enable = false);
@@ -70,7 +69,7 @@ public:
     bool run_offset_calibration();
     void sample_now();
     void decode_hall_samples(uint16_t GPIO_samples[n_GPIO_samples]);
-    bool update();
+    bool update(float dt);
 
 
 
